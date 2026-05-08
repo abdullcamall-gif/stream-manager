@@ -1,3 +1,4 @@
+import { CheckoutFlow } from "@/app/components/checkout-flow";
 import { PlanCard } from "@/app/components/plan-card";
 import { listCatalogPlans, listCatalogServices } from "@/lib/services";
 
@@ -70,6 +71,8 @@ export default async function Home() {
             );
           })}
         </section>
+
+        <CheckoutFlow plans={plans} />
       </div>
     </main>
   );
