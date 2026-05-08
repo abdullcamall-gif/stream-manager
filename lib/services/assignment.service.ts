@@ -48,6 +48,10 @@ function isSerializableConflict(error: unknown): boolean {
   );
 }
 
+const APPROVAL_TX_MAX_RETRIES = 3;
+const APPROVAL_TX_MAX_WAIT_MS = 5_000;
+const APPROVAL_TX_TIMEOUT_MS = 10_000;
+
 function computeAvailableSlot(totalSlots: number, usedSlots: Set<number>): number | null {
   for (let slot = 1; slot <= totalSlots; slot += 1) {
     if (!usedSlots.has(slot)) {
@@ -70,9 +74,7 @@ export async function approveOrder(orderIdInput: string): Promise<ApproveOrderRe
     };
   }
 
-  const maxRetries = 3;
-
-  for (let attempt = 1; attempt <= maxRetries; attempt += 1) {
+  for (let attempt = 1; attempt <= APPROVAL_TX_MAX_RETRIES; attempt += 1) {
     try {
       const approved = await prisma.$transaction(
         async (tx) => {
@@ -238,6 +240,8 @@ export async function approveOrder(orderIdInput: string): Promise<ApproveOrderRe
         },
         {
           isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          maxWait: APPROVAL_TX_MAX_WAIT_MS,
+          timeout: APPROVAL_TX_TIMEOUT_MS,
         },
       );
 
@@ -257,7 +261,7 @@ export async function approveOrder(orderIdInput: string): Promise<ApproveOrderRe
         };
       }
 
-      if (isSerializableConflict(error) && attempt < maxRetries) {
+      if (isSerializableConflict(error) && attempt < APPROVAL_TX_MAX_RETRIES) {
         continue;
       }
 
