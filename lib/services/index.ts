@@ -6,6 +6,7 @@
 export { listCatalogServices, listCatalogPlans } from "./catalog.service";
 export { createManualOrder, listOrdersByPhone } from "./checkout.service";
 export { approveOrder } from "./assignment.service";
+export { loginAdmin, authorizeAdmin } from "./admin-auth.service";
 export type {
   CreateOrderRequest,
   CreateOrderResult,
