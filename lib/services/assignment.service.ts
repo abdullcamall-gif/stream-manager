@@ -261,6 +261,41 @@ export async function approveOrder(orderIdInput: string): Promise<ApproveOrderRe
         };
       }
 
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        (error as { code?: string }).code === "P2002"
+      ) {
+        const alreadyApproved = await prisma.order.findUnique({
+          where: { id: orderId },
+          select: {
+            id: true,
+            status: true,
+            assignment: {
+              select: {
+                accountId: true,
+                slotNumber: true,
+                expiresAt: true,
+              },
+            },
+          },
+        });
+
+        if (alreadyApproved?.status === "APPROVED" && alreadyApproved.assignment) {
+          return {
+            ok: true,
+            data: {
+              orderId: alreadyApproved.id,
+              status: "APPROVED",
+              accountId: alreadyApproved.assignment.accountId,
+              slotNumber: alreadyApproved.assignment.slotNumber,
+              expiresAt: alreadyApproved.assignment.expiresAt.toISOString(),
+            },
+          };
+        }
+      }
+
       if (isSerializableConflict(error) && attempt < APPROVAL_TX_MAX_RETRIES) {
         continue;
       }
