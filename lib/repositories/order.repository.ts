@@ -14,6 +14,18 @@ export type CreatedOrder = {
   status: "PENDING" | "APPROVED" | "REJECTED";
 };
 
+export type CustomerOrderListItem = {
+  id: string;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  service: string;
+  plan: string;
+  expiresAt: string | null;
+  credentials: {
+    email: string;
+    password: string;
+  } | null;
+};
+
 export async function isPlanAvailable(planId: string): Promise<boolean> {
   const plan = await prisma.plan.findFirst({
     where: {
@@ -28,6 +40,65 @@ export async function isPlanAvailable(planId: string): Promise<boolean> {
   });
 
   return Boolean(plan);
+}
+
+export async function findOrdersByPhone(
+  phone: string,
+): Promise<CustomerOrderListItem[]> {
+  const orders = await prisma.order.findMany({
+    where: {
+      customer: {
+        phone,
+      },
+    },
+    select: {
+      id: true,
+      status: true,
+      plan: {
+        select: {
+          name: true,
+          service: {
+            select: {
+              name: true,
+            },
+          },
+        },
+      },
+      assignment: {
+        select: {
+          expiresAt: true,
+          account: {
+            select: {
+              email: true,
+              password: true,
+            },
+          },
+        },
+      },
+    },
+    orderBy: {
+      createdAt: "desc",
+    },
+  });
+
+  return orders.map((order) => {
+    const assignment = order.assignment;
+    const canExposeCredentials = order.status === "APPROVED" && assignment;
+
+    return {
+      id: order.id,
+      status: order.status,
+      service: order.plan.service.name,
+      plan: order.plan.name,
+      expiresAt: assignment?.expiresAt.toISOString() ?? null,
+      credentials: canExposeCredentials
+        ? {
+            email: assignment.account.email,
+            password: assignment.account.password,
+          }
+        : null,
+    };
+  });
 }
 
 export async function createOrderWithCustomer(
