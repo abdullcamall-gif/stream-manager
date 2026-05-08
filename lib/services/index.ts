@@ -4,5 +4,11 @@
  * Contract reference: docs/system.contract.md
  */
 export { listCatalogServices, listCatalogPlans } from "./catalog.service";
-export { createManualOrder } from "./checkout.service";
-export type { CreateOrderRequest, CreateOrderResult } from "./checkout.service";
+export { createManualOrder, listOrdersByPhone } from "./checkout.service";
+export { approveOrder } from "./assignment.service";
+export type {
+  CreateOrderRequest,
+  CreateOrderResult,
+  OrdersByPhoneResult,
+} from "./checkout.service";
+export type { ApproveOrderResult } from "./assignment.service";
