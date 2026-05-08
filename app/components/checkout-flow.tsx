@@ -184,6 +184,23 @@ export function CheckoutFlow({ plans }: CheckoutFlowProps) {
             <p className="mt-2 text-xs text-slate-400">
               O envio do pedido exige comprovante.
             </p>
+            {proofImageUrl ? (
+              <div className="mt-3">
+                <p className="mb-2 text-xs text-slate-400">Preview do comprovante</p>
+                <img
+                  src={proofImageUrl}
+                  alt="Comprovante enviado"
+                  className="max-h-48 rounded-lg border border-slate-700 object-contain"
+                />
+                <button
+                  type="button"
+                  onClick={() => setProofImageUrl("")}
+                  className="mt-2 text-xs text-rose-300 underline"
+                >
+                  Remover comprovante
+                </button>
+              </div>
+            ) : null}
             <button
               type="button"
               disabled={isSubmitting || !proofImageUrl}
