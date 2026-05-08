@@ -5,5 +5,7 @@
  */
 export { findActiveServices } from "./service.repository";
 export { findActivePlans } from "./plan.repository";
+export { createOrderWithCustomer, isPlanAvailable } from "./order.repository";
 export type { ServiceListItem } from "./service.repository";
 export type { PlanListItem } from "./plan.repository";
+export type { CreateOrderInput, CreatedOrder } from "./order.repository";
