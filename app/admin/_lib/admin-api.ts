@@ -57,6 +57,10 @@ export async function adminFetch<T>(
   }
 
   if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      clearAdminToken();
+    }
+
     return {
       ok: false,
       status: response.status,
