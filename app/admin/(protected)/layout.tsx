@@ -36,14 +36,14 @@ export default function AdminLayout({
 
   useEffect(() => {
     const token = getAdminToken();
-    if (!token && !pathname.endsWith("/login")) {
+    if (!token) {
       router.push("/admin/login");
     } else {
       setIsAuthorized(true);
     }
   }, [pathname, router]);
 
-  if (!isAuthorized && !pathname.endsWith("/login")) {
+  if (!isAuthorized) {
     return (
       <div className="min-h-screen bg-[#050505] flex items-center justify-center">
         <div className="w-12 h-12 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
@@ -91,7 +91,13 @@ export default function AdminLayout({
         </nav>
 
         <div className="px-4 mt-auto">
-          <button className="w-full flex items-center gap-4 p-4 rounded-2xl text-error/70 hover:text-error hover:bg-error/5 transition-all group">
+          <button 
+            onClick={() => {
+              import("@/app/admin/_lib/admin-api").then(m => m.clearAdminToken());
+              router.push("/admin/login");
+            }}
+            className="w-full flex items-center gap-4 p-4 rounded-2xl text-error/70 hover:text-error hover:bg-error/5 transition-all group"
+          >
             <LogOut className="w-6 h-6 group-hover:scale-110 transition-transform" />
             <span className="hidden md:block font-headline text-sm font-bold tracking-wide">Sair</span>
           </button>
