@@ -61,15 +61,15 @@ export default function UsersAdminPage() {
   async function deleteUser(user: AdminUser) {
     const confirmed = window.confirm(`Excluir admin ${user.email}?`);
     if (!confirmed) return;
-    const previous = [...users];
-    setUsers((prev) => prev.filter((item) => item.id !== user.id));
+    setError("");
     const result = await adminFetch<{ ok: boolean }>(`/api/admin/admins/${user.id}`, {
       method: "DELETE",
     });
     if (!result.ok) {
-      setUsers(previous);
       setError(result.message);
+      return;
     }
+    setUsers((prev) => prev.filter((item) => item.id !== user.id));
   }
 
   return (
