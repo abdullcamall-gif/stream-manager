@@ -75,7 +75,7 @@ export async function approveOrderForAdmin(orderIdInput: string) {
 }
 
 export async function listServicesAdmin() {
-  return prisma.service.findMany({ orderBy: { createdAt: "desc" } });
+  return prisma.service.findMany({ orderBy: { id: "desc" } });
 }
 export async function createServiceAdmin(input: ServiceInput) {
   const name = input.name.trim();
@@ -89,7 +89,7 @@ export async function deleteServiceAdmin(id: string) {
 }
 
 export async function listPlansAdmin() {
-  return prisma.plan.findMany({ include: { service: true }, orderBy: { createdAt: "desc" } });
+  return prisma.plan.findMany({ include: { service: true }, orderBy: { id: "desc" } });
 }
 export async function createPlanAdmin(input: PlanInput) {
   return prisma.plan.create({
@@ -111,7 +111,7 @@ export async function deletePlanAdmin(id: string) {
 }
 
 export async function listAccountsAdmin() {
-  return prisma.account.findMany({ include: { service: true }, orderBy: { createdAt: "desc" } });
+  return prisma.account.findMany({ include: { service: true }, orderBy: { id: "desc" } });
 }
 export async function createAccountAdmin(input: AccountInput) {
   const availableSlots = Math.max(0, Math.min(input.availableSlots, input.totalSlots));
@@ -145,7 +145,7 @@ export async function deleteAccountAdmin(id: string) {
 }
 
 export async function listAdminsAdmin() {
-  return prisma.adminUser.findMany({ orderBy: { createdAt: "desc" } });
+  return prisma.adminUser.findMany({ orderBy: { id: "desc" } });
 }
 export async function createAdminAdmin(input: AdminInput) {
   return prisma.adminUser.create({
@@ -161,4 +161,28 @@ export async function updateAdminAdmin(id: string, input: Partial<AdminInput>) {
 }
 export async function deleteAdminAdmin(id: string) {
   return prisma.adminUser.delete({ where: { id } });
+}
+
+export async function getAdminStats() {
+  const [activeUsersCount, pendingOrdersCount, approvedOrders] = await Promise.all([
+    prisma.order.groupBy({
+      by: ["customerId"],
+      where: { status: "APPROVED" },
+    }),
+    prisma.order.count({
+      where: { status: "PENDING" },
+    }),
+    prisma.order.findMany({
+      where: { status: "APPROVED" },
+      select: { plan: { select: { price: true } } }
+    }),
+  ]);
+  
+  const totalRevenue = approvedOrders.reduce((sum, order) => sum + Number(order.plan.price), 0);
+
+  return {
+    totalRevenue,
+    activeUsers: activeUsersCount.length,
+    pendingOrders: pendingOrdersCount,
+  };
 }
