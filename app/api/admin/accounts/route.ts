@@ -1,15 +1,15 @@
 import { ensureAdmin } from "@/app/api/admin/_auth";
-import { createAccountAdmin, listAccountsAdmin } from "@/lib/services";
+import { createAccountAdmin, listAccountsAdmin } from "@/lib/services/admin-management.service";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
-  const auth = ensureAdmin(request);
+  const auth = await ensureAdmin(request);
   if (!auth.ok) return auth.response;
   return NextResponse.json(await listAccountsAdmin());
 }
 
 export async function POST(request: Request) {
-  const auth = ensureAdmin(request, ["SUPER_ADMIN"]);
+  const auth = await ensureAdmin(request, ["ADMIN"]);
   if (!auth.ok) return auth.response;
   const body = (await request.json()) as {
     serviceId?: unknown;
@@ -37,3 +37,5 @@ export async function POST(request: Request) {
 
   return NextResponse.json(await createAccountAdmin(payload), { status: 201 });
 }
+
+

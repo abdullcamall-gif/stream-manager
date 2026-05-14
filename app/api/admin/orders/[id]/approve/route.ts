@@ -1,12 +1,12 @@
 import { ensureAdmin } from "@/app/api/admin/_auth";
-import { approveOrderForAdmin } from "@/lib/services";
+import { approveOrderForAdmin } from "@/lib/services/admin-management.service";
 import { NextResponse } from "next/server";
 
 export async function PATCH(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
-  const auth = ensureAdmin(request);
+  const auth = await ensureAdmin(request, ["ADMIN"]);
   if (!auth.ok) {
     return auth.response;
   }
@@ -19,3 +19,5 @@ export async function PATCH(
 
   return NextResponse.json(result.data);
 }
+
+

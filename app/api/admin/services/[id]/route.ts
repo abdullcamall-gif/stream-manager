@@ -1,12 +1,12 @@
 import { ensureAdmin } from "@/app/api/admin/_auth";
-import { deleteServiceAdmin, updateServiceAdmin } from "@/lib/services";
+import { deleteServiceAdmin, updateServiceAdmin } from "@/lib/services/admin-management.service";
 import { NextResponse } from "next/server";
 
 export async function PATCH(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
-  const auth = ensureAdmin(request, ["SUPER_ADMIN"]);
+  const auth = await ensureAdmin(request, ["ADMIN"]);
   if (!auth.ok) return auth.response;
   const { id } = await context.params;
   const body = (await request.json()) as { name?: unknown; isActive?: unknown };
@@ -21,9 +21,11 @@ export async function DELETE(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
-  const auth = ensureAdmin(request, ["SUPER_ADMIN"]);
+  const auth = await ensureAdmin(request, ["ADMIN"]);
   if (!auth.ok) return auth.response;
   const { id } = await context.params;
   await deleteServiceAdmin(id);
   return NextResponse.json({ ok: true });
 }
+
+
