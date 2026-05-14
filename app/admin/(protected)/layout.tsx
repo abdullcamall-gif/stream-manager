@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { 
@@ -12,8 +13,7 @@ import {
   Package
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getAdminToken } from "@/app/admin/_lib/admin-api";
-import { useEffect, useState } from "react";
+import { clearAdminToken, getAdminRoleFromToken, getAdminToken } from "@/app/admin/_lib/admin-api";
 import { useRouter } from "next/navigation";
 
 const menuItems = [
@@ -32,18 +32,21 @@ export default function AdminLayout({
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [isAuthorized, setIsAuthorized] = useState(false);
+  const token = getAdminToken();
+  const role = getAdminRoleFromToken();
+  const isAdminOnlyRoute = pathname === "/admin/users" || pathname === "/admin/settings";
 
   useEffect(() => {
-    const token = getAdminToken();
     if (!token) {
       router.push("/admin/login");
-    } else {
-      setIsAuthorized(true);
+      return;
     }
-  }, [pathname, router]);
+    if (role === "SUPPORT" && isAdminOnlyRoute) {
+      router.push("/admin/dashboard");
+    }
+  }, [isAdminOnlyRoute, role, router, token]);
 
-  if (!isAuthorized) {
+  if (!token || (role === "SUPPORT" && isAdminOnlyRoute)) {
     return (
       <div className="min-h-screen bg-[#050505] flex items-center justify-center">
         <div className="w-12 h-12 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
@@ -59,13 +62,18 @@ export default function AdminLayout({
           <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center font-headline font-bold text-on-primary">
             E
           </div>
-          <span className="hidden md:block mt-4 font-headline text-lg font-bold tracking-tighter">
+          <span className="hidden md:block mt-4 font-headline text-lg font-bold tracking-tighter text-white">
             Command Center
           </span>
         </div>
 
         <nav className="flex-1 space-y-2 px-4">
-          {menuItems.map((item) => {
+          {menuItems
+            .filter((item) => {
+              if (role !== "SUPPORT") return true;
+              return item.href !== "/admin/users" && item.href !== "/admin/settings";
+            })
+            .map((item) => {
             const isActive = pathname === item.href;
             return (
               <Link
@@ -93,10 +101,10 @@ export default function AdminLayout({
         <div className="px-4 mt-auto">
           <button 
             onClick={() => {
-              import("@/app/admin/_lib/admin-api").then(m => m.clearAdminToken());
+              clearAdminToken();
               router.push("/admin/login");
             }}
-            className="w-full flex items-center gap-4 p-4 rounded-2xl text-error/70 hover:text-error hover:bg-error/5 transition-all group"
+            className="w-full flex items-center gap-4 p-4 rounded-2xl text-red-500/70 hover:text-red-500 hover:bg-red-500/5 transition-all group"
           >
             <LogOut className="w-6 h-6 group-hover:scale-110 transition-transform" />
             <span className="hidden md:block font-headline text-sm font-bold tracking-wide">Sair</span>

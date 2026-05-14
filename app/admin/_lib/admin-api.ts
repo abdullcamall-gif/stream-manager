@@ -1,6 +1,12 @@
-"use client";
-
 const ADMIN_TOKEN_KEY = "admin_token";
+export type AdminClientRole = "ADMIN" | "SUPPORT";
+
+type AdminTokenPayload = {
+  sub?: string;
+  email?: string;
+  role?: AdminClientRole;
+  exp?: number;
+};
 
 export function getAdminToken(): string {
   if (typeof window === "undefined") return "";
@@ -15,6 +21,27 @@ export function setAdminToken(token: string) {
 export function clearAdminToken() {
   if (typeof window === "undefined") return;
   localStorage.removeItem(ADMIN_TOKEN_KEY);
+}
+
+function decodeTokenPayload(token: string): AdminTokenPayload | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length < 2) return null;
+    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+    const json = atob(padded);
+    return JSON.parse(json) as AdminTokenPayload;
+  } catch {
+    return null;
+  }
+}
+
+export function getAdminRoleFromToken(): AdminClientRole | null {
+  const token = getAdminToken();
+  if (!token) return null;
+  const payload = decodeTokenPayload(token);
+  if (!payload) return null;
+  return payload.role === "ADMIN" || payload.role === "SUPPORT" ? payload.role : null;
 }
 
 type ApiResult<T> =
