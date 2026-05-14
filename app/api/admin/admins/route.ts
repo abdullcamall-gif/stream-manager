@@ -1,15 +1,15 @@
 import { ensureAdmin } from "@/app/api/admin/_auth";
-import { createAdminAdmin, listAdminsAdmin } from "@/lib/services";
+import { createAdminAdmin, listAdminsAdmin } from "@/lib/services/admin-management.service";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
-  const auth = ensureAdmin(request, ["SUPER_ADMIN"]);
+  const auth = await ensureAdmin(request, ["ADMIN"]);
   if (!auth.ok) return auth.response;
   return NextResponse.json(await listAdminsAdmin());
 }
 
 export async function POST(request: Request) {
-  const auth = ensureAdmin(request, ["SUPER_ADMIN"]);
+  const auth = await ensureAdmin(request, ["ADMIN"]);
   if (!auth.ok) return auth.response;
   const body = (await request.json()) as {
     email?: unknown;
@@ -28,8 +28,13 @@ export async function POST(request: Request) {
     await createAdminAdmin({
       email,
       passwordHash,
-      role: body.role === "SUPER_ADMIN" ? "SUPER_ADMIN" : "ADMIN",
+      role:
+        body.role === "ADMIN" || body.role === "SUPPORT"
+          ? body.role
+          : "ADMIN",
     }),
     { status: 201 },
   );
 }
+
+

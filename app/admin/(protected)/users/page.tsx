@@ -6,7 +6,7 @@ import { adminFetch } from "@/app/admin/_lib/admin-api";
 type AdminUser = {
   id: string;
   email: string;
-  role: "ADMIN" | "SUPER_ADMIN";
+  role: "ADMIN" | "SUPPORT";
   createdAt: string;
 };
 
@@ -35,9 +35,9 @@ export default function UsersAdminPage() {
   async function updateUser(user: AdminUser) {
     const nextEmail = window.prompt("Novo email:", user.email);
     if (nextEmail === null) return;
-    const nextRole = window.confirm("Definir como SUPER_ADMIN? OK=SUPER_ADMIN, Cancel=ADMIN")
-      ? "SUPER_ADMIN"
-      : "ADMIN";
+    const nextRole = window.confirm("Definir como ADMIN? OK=ADMIN, Cancel=SUPPORT")
+      ? "ADMIN"
+      : "SUPPORT";
 
     const previous = [...users];
     setUsers((prev) =>
@@ -98,3 +98,4 @@ export default function UsersAdminPage() {
     </main>
   );
 }
+

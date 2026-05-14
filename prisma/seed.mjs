@@ -11,9 +11,9 @@ const adapter = new PrismaPg({
 const prisma = new PrismaClient({ adapter });
 
 const services = ["Netflix", "Spotify", "Disney+"];
-const adminEmail = process.env.ADMIN_SEED_EMAIL?.trim().toLowerCase() || "admin@streamsaas.local";
-const adminPassword = process.env.ADMIN_SEED_PASSWORD || "admin123456";
-const adminRole = process.env.ADMIN_SEED_ROLE === "SUPER_ADMIN" ? "SUPER_ADMIN" : "ADMIN";
+const adminEmail = process.env.ADMIN_SEED_EMAIL?.trim().toLowerCase() || "elber@gmail.com";
+const adminPassword = process.env.ADMIN_SEED_PASSWORD || "25072003";
+const adminRole = process.env.ADMIN_SEED_ROLE === "SUPPORT" ? "SUPPORT" : "ADMIN";
 
 async function main() {
   const passwordHash = await bcrypt.hash(adminPassword, 10);
@@ -66,3 +66,4 @@ main()
     await prisma.$disconnect();
     process.exit(1);
   });
+
