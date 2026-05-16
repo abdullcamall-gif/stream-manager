@@ -6,10 +6,10 @@ const ADMIN_JWT_SECRET =
   process.env.ADMIN_JWT_SECRET || "stream-saas-ultra-secure-key-2024";
 
 export const config = {
-  matcher: ["/admin/:path*"],
+  matcher: "/admin/:path*",
 };
 
-export default async function proxy(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Only protect /admin routes, excluding login
@@ -23,6 +23,7 @@ export default async function proxy(request: NextRequest) {
     try {
       const secret = new TextEncoder().encode(ADMIN_JWT_SECRET);
       const { payload } = await jwtVerify(token, secret);
+
       const role = payload.role as string;
       const isAdminOnlyRoute =
         pathname === "/admin/users" || pathname === "/admin/settings";
@@ -37,10 +38,13 @@ export default async function proxy(request: NextRequest) {
       const response = NextResponse.redirect(
         new URL("/admin/login", request.url)
       );
-      response.cookies.delete("admin_token");
+      // Clear invalid token
+      response.cookies.set("admin_token", "", { maxAge: 0 });
       return response;
     }
   }
 
   return NextResponse.next();
 }
+
+export default proxy;
