@@ -1,39 +1,38 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { motion } from "framer-motion";
-import { 
-  MessageSquare, 
-  Search, 
-  MoreHorizontal, 
-  Send, 
+import { useState } from "react";
+import {
+  MessageSquare,
+  Search,
+  MoreHorizontal,
+  Send,
   User,
-  Clock,
   CheckCircle2,
-  Inbox
+  Inbox,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export default function AdminSupportPage() {
-  const [tickets, setTickets] = useState<any[]>([]);
-  const [selectedTicket, setSelectedTicket] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(true);
+type SupportTicket = {
+  id: string;
+  user: string;
+  time: string;
+  lastMsg: string;
+  status: "OPEN" | "CLOSED";
+};
 
-  useEffect(() => {
-    // Preparar integração futura
-    setIsLoading(false);
-  }, []);
+export default function AdminSupportPage() {
+  const [tickets] = useState<SupportTicket[]>([]);
+  const [selectedTicket, setSelectedTicket] = useState<SupportTicket | null>(null);
 
   return (
     <div className="h-[calc(100vh-140px)] flex gap-6 animate-in fade-in duration-700">
-      {/* Ticket List */}
       <div className="hidden md:flex w-80 flex-col liquid-glass rounded-3xl border border-white/5 overflow-hidden">
         <div className="p-6 border-b border-white/5">
           <h2 className="font-headline text-xl font-bold text-white mb-4">Tickets Suporte</h2>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-variant" />
-            <input 
-              type="text" 
+            <input
+              type="text"
               placeholder="Buscar tickets..."
               className="w-full bg-white/5 border border-white/10 rounded-xl py-2 pl-9 pr-4 text-xs text-white focus:outline-none"
             />
@@ -46,7 +45,7 @@ export default function AdminSupportPage() {
               onClick={() => setSelectedTicket(t)}
               className={cn(
                 "w-full p-6 text-left border-b border-white/5 transition-all hover:bg-white/[0.02]",
-                selectedTicket?.id === t.id ? "bg-primary/5 border-l-4 border-l-primary" : ""
+                selectedTicket?.id === t.id ? "bg-primary/5 border-l-4 border-l-primary" : "",
               )}
             >
               <div className="flex justify-between items-start mb-2">
@@ -55,10 +54,14 @@ export default function AdminSupportPage() {
               </div>
               <p className="text-xs text-on-surface-variant line-clamp-1 mb-3">{t.lastMsg}</p>
               <div className="flex gap-2">
-                <span className={cn(
-                  "px-2 py-0.5 rounded-full text-[8px] font-bold tracking-widest uppercase border",
-                  t.status === "OPEN" ? "bg-primary/10 text-primary border-primary/20" : "bg-white/5 text-on-surface-variant border-white/10"
-                )}>
+                <span
+                  className={cn(
+                    "px-2 py-0.5 rounded-full text-[8px] font-bold tracking-widest uppercase border",
+                    t.status === "OPEN"
+                      ? "bg-primary/10 text-primary border-primary/20"
+                      : "bg-white/5 text-on-surface-variant border-white/10",
+                  )}
+                >
                   {t.status}
                 </span>
               </div>
@@ -72,11 +75,9 @@ export default function AdminSupportPage() {
         </div>
       </div>
 
-      {/* Chat Area */}
       <div className="flex-1 flex flex-col liquid-glass rounded-3xl border border-white/5 overflow-hidden min-h-[500px]">
         {selectedTicket ? (
           <>
-            {/* Header */}
             <div className="p-6 border-b border-white/5 flex justify-between items-center bg-white/[0.01]">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center border border-white/10">
@@ -100,15 +101,12 @@ export default function AdminSupportPage() {
               </div>
             </div>
 
-            {/* Messages */}
             <div className="flex-1 p-8 overflow-y-auto space-y-6">
               <div className="flex justify-center">
                 <span className="px-4 py-1 bg-white/5 rounded-full text-[10px] text-on-surface-variant font-bold uppercase tracking-widest">
                   Hoje, 14:20
                 </span>
               </div>
-              
-              {/* User Message */}
               <div className="flex gap-4 max-w-[80%]">
                 <div className="w-8 h-8 bg-white/5 rounded-lg flex items-center justify-center shrink-0 border border-white/10">
                   <User className="w-4 h-4 text-on-surface-variant" />
@@ -117,8 +115,6 @@ export default function AdminSupportPage() {
                   <p className="text-sm text-white leading-relaxed">{selectedTicket.lastMsg}</p>
                 </div>
               </div>
-
-              {/* Admin Message */}
               <div className="flex flex-row-reverse gap-4 max-w-[80%] ml-auto">
                 <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center shrink-0 border border-primary/20">
                   <User className="w-4 h-4 text-primary" />
@@ -129,11 +125,10 @@ export default function AdminSupportPage() {
               </div>
             </div>
 
-            {/* Input */}
             <div className="p-6 bg-white/[0.01] border-t border-white/5">
               <div className="relative">
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   placeholder="Escreva sua resposta..."
                   className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-6 pr-24 text-sm text-white focus:outline-none focus:border-primary/50 transition-all"
                 />

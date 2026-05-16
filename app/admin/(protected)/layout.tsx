@@ -1,28 +1,25 @@
-"use client";
+﻿"use client";
 
-import { useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { 
   LayoutDashboard, 
-  Users, 
   ShoppingCart, 
-  Settings, 
   LogOut, 
   MessageSquare,
-  Package
+  Package,
+  Archive
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { clearAdminToken, getAdminRoleFromToken, getAdminToken } from "@/app/admin/_lib/admin-api";
+import { clearAdminToken } from "@/app/admin/_lib/admin-api";
 import { useRouter } from "next/navigation";
 
 const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", href: "/admin/dashboard" },
   { icon: ShoppingCart, label: "Pedidos", href: "/admin/orders" },
-  { icon: Users, label: "Usuários", href: "/admin/users" },
-  { icon: Package, label: "Serviços", href: "/admin/services" },
-  { icon: MessageSquare, label: "Suporte", href: "/admin/support" },
-  { icon: Settings, label: "Configurações", href: "/admin/settings" },
+  { icon: Archive, label: "Estoque", href: "/admin/inventory" },
+  { icon: MessageSquare, label: "Logs WhatsApp", href: "/admin/whatsapp/logs" },
+  { icon: Package, label: "ServiÃ§os", href: "/admin/services" },
 ];
 
 export default function AdminLayout({
@@ -32,27 +29,7 @@ export default function AdminLayout({
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const token = getAdminToken();
-  const role = getAdminRoleFromToken();
-  const isAdminOnlyRoute = pathname === "/admin/users" || pathname === "/admin/settings";
-
-  useEffect(() => {
-    if (!token) {
-      router.push("/admin/login");
-      return;
-    }
-    if (role === "SUPPORT" && isAdminOnlyRoute) {
-      router.push("/admin/dashboard");
-    }
-  }, [isAdminOnlyRoute, role, router, token]);
-
-  if (!token || (role === "SUPPORT" && isAdminOnlyRoute)) {
-    return (
-      <div className="min-h-screen bg-[#050505] flex items-center justify-center">
-        <div className="w-12 h-12 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
-      </div>
-    );
-  }
+  // Auth is handled by middleware.ts on the server side.
 
   return (
     <div className="min-h-screen bg-[#050505] text-on-surface flex p-6 gap-6">
@@ -68,12 +45,7 @@ export default function AdminLayout({
         </div>
 
         <nav className="flex-1 space-y-2 px-4">
-          {menuItems
-            .filter((item) => {
-              if (role !== "SUPPORT") return true;
-              return item.href !== "/admin/users" && item.href !== "/admin/settings";
-            })
-            .map((item) => {
+          {menuItems.map((item) => {
             const isActive = pathname === item.href;
             return (
               <Link

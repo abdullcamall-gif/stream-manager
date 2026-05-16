@@ -1,31 +1,46 @@
-import { ensureAdmin } from "@/app/api/admin/_auth";
-import { deleteServiceAdmin, updateServiceAdmin } from "@/lib/services/admin-management.service";
 import { NextResponse } from "next/server";
+import { ensureAdmin } from "../../_auth";
+import { AdminServicesService } from "@/lib/services/admin-services.service";
 
 export async function PATCH(
   request: Request,
-  context: { params: Promise<{ id: string }> },
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const auth = await ensureAdmin(request, ["ADMIN"]);
   if (!auth.ok) return auth.response;
-  const { id } = await context.params;
-  const body = (await request.json()) as { name?: unknown; isActive?: unknown };
-  const updated = await updateServiceAdmin(id, {
-    name: typeof body.name === "string" ? body.name.trim() : undefined,
-    isActive: typeof body.isActive === "boolean" ? body.isActive : undefined,
-  });
-  return NextResponse.json(updated);
+
+  try {
+    const { id } = await params;
+    const body = await request.json();
+
+    const service = await AdminServicesService.updateService(id, {
+      name: body.name,
+      slug: body.slug,
+      logoUrl: body.logoUrl,
+      bannerUrl: body.bannerUrl,
+      isActive: body.isActive,
+    });
+
+    return NextResponse.json(service);
+  } catch (error) {
+    console.error("PATCH /api/admin/services/[id] error:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
 }
 
 export async function DELETE(
   request: Request,
-  context: { params: Promise<{ id: string }> },
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const auth = await ensureAdmin(request, ["ADMIN"]);
   if (!auth.ok) return auth.response;
-  const { id } = await context.params;
-  await deleteServiceAdmin(id);
-  return NextResponse.json({ ok: true });
+
+  try {
+    const { id } = await params;
+    await AdminServicesService.deleteService(id);
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    console.error("DELETE /api/admin/services/[id] error:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
 }
-
-

@@ -6,7 +6,7 @@ type ApproveOrderErrorCode =
   | "INVALID_INPUT"
   | "NOT_FOUND"
   | "ORDER_NOT_PENDING"
-  | "NO_AVAILABLE_ACCOUNT";
+  | "NO_AVAILABLE_PROFILE";
 
 export type ApproveOrderResult =
   | {
@@ -15,7 +15,8 @@ export type ApproveOrderResult =
         orderId: string;
         status: OrderStatus;
         accountId: string;
-        slotNumber: number;
+        profileId: string;
+        profileName: string;
         expiresAt: string;
       };
     }
@@ -31,7 +32,6 @@ export type ApproveOrderResult =
 class ApprovalError extends Error {
   code: ApproveOrderErrorCode;
   statusCode: number;
-
   constructor(code: ApproveOrderErrorCode, message: string, statusCode: number) {
     super(message);
     this.code = code;
@@ -40,38 +40,16 @@ class ApprovalError extends Error {
 }
 
 function isSerializableConflict(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: string }).code === "P2034"
-  );
+  return typeof error === "object" && error !== null && "code" in error && (error as { code?: string }).code === "P2034";
 }
 
 const APPROVAL_TX_MAX_RETRIES = 3;
-const APPROVAL_TX_MAX_WAIT_MS = 5_000;
-const APPROVAL_TX_TIMEOUT_MS = 10_000;
-
-function computeAvailableSlot(totalSlots: number, usedSlots: Set<number>): number | null {
-  for (let slot = 1; slot <= totalSlots; slot += 1) {
-    if (!usedSlots.has(slot)) {
-      return slot;
-    }
-  }
-
-  return null;
-}
 
 export async function approveOrder(orderIdInput: string): Promise<ApproveOrderResult> {
   void SYSTEM_CONTRACT_PATH;
-
   const orderId = orderIdInput.trim();
   if (!orderId) {
-    return {
-      ok: false,
-      error: { code: "INVALID_INPUT", message: "orderId is required" },
-      statusCode: 400,
-    };
+    return { ok: false, error: { code: "INVALID_INPUT", message: "orderId is required" }, statusCode: 400 };
   }
 
   for (let attempt = 1; attempt <= APPROVAL_TX_MAX_RETRIES; attempt += 1) {
@@ -85,239 +63,80 @@ export async function approveOrder(orderIdInput: string): Promise<ApproveOrderRe
               status: true,
               assignment: {
                 select: {
-                  accountId: true,
-                  slotNumber: true,
+                  profileId: true,
                   expiresAt: true,
+                  profile: { select: { profileName: true, accountId: true } },
                 },
               },
-              plan: {
-                select: {
-                  serviceId: true,
-                  durationInDays: true,
-                },
-              },
+              offer: { select: { serviceId: true, durationInDays: true } },
             },
           });
 
-          if (!order) {
-            throw new ApprovalError("NOT_FOUND", "Order not found", 404);
-          }
-
-          // Idempotent success: if order was already approved with assignment, return it.
+          if (!order) throw new ApprovalError("NOT_FOUND", "Order not found", 404);
           if (order.status === "APPROVED" && order.assignment) {
             return {
               orderId: order.id,
               status: "APPROVED" as const,
-              accountId: order.assignment.accountId,
-              slotNumber: order.assignment.slotNumber,
+              accountId: order.assignment.profile.accountId,
+              profileId: order.assignment.profileId,
+              profileName: order.assignment.profile.profileName,
               expiresAt: order.assignment.expiresAt.toISOString(),
             };
           }
+          if (order.status !== "PENDING") throw new ApprovalError("ORDER_NOT_PENDING", "Order is not pending and cannot be approved", 409);
+          if (order.assignment) throw new ApprovalError("ORDER_NOT_PENDING", "Order already has an assignment", 409);
 
-          if (order.status !== "PENDING") {
-            throw new ApprovalError(
-              "ORDER_NOT_PENDING",
-              "Order is not pending and cannot be approved",
-              409,
-            );
-          }
-
-          if (order.assignment) {
-            throw new ApprovalError(
-              "ORDER_NOT_PENDING",
-              "Order already has an assignment",
-              409,
-            );
-          }
-
-        const candidateAccounts = await tx.account.findMany({
-          where: {
-            serviceId: order.plan.serviceId,
-            isActive: true,
-            availableSlots: {
-              gt: 0,
-            },
-          },
-          select: {
-            id: true,
-            totalSlots: true,
-            availableSlots: true,
-          },
-          orderBy: [{ availableSlots: "desc" }, { createdAt: "asc" }],
-        });
-
-        const now = new Date();
-        const expiresAt = new Date(
-          now.getTime() + order.plan.durationInDays * 24 * 60 * 60 * 1000,
-        );
-
-        for (const account of candidateAccounts) {
-          if (account.totalSlots <= 0) {
-            continue;
-          }
-
-          if (account.availableSlots > account.totalSlots || account.availableSlots < 0) {
-            continue;
-          }
-
-          const activeAssignments = await tx.orderAssignment.findMany({
+          const profile = await tx.streamingProfile.findFirst({
             where: {
-              accountId: account.id,
-              expiresAt: {
-                gt: now,
-              },
+              status: "AVAILABLE",
+              account: { isActive: true, serviceId: order.offer.serviceId },
             },
-            select: { slotNumber: true },
+            select: { id: true, profileName: true, accountId: true },
+            orderBy: [{ createdAt: "asc" }],
           });
 
-          const usedSlots = new Set(activeAssignments.map((item) => item.slotNumber));
-          const freeSlot = computeAvailableSlot(account.totalSlots, usedSlots);
-          if (!freeSlot) {
-            continue;
-          }
+          if (!profile) throw new ApprovalError("NO_AVAILABLE_PROFILE", "No available profile for this offer", 409);
 
-          const decremented = await tx.account.updateMany({
-            where: {
-              id: account.id,
-              isActive: true,
-              availableSlots: account.availableSlots,
-              totalSlots: {
-                gte: account.availableSlots,
-              },
-            },
+          const marked = await tx.streamingProfile.updateMany({
+            where: { id: profile.id, status: "AVAILABLE" },
             data: {
-              availableSlots: {
-                decrement: 1,
-              },
+              status: "OCCUPIED",
+              isAvailable: false,
+              expiresAt: new Date(Date.now() + order.offer.durationInDays * 24 * 60 * 60 * 1000),
+              isExpired: false,
             },
           });
+          if (marked.count !== 1) throw new ApprovalError("NO_AVAILABLE_PROFILE", "Profile is no longer available", 409);
 
-          if (decremented.count !== 1) {
-            continue;
-          }
-
-          await tx.orderAssignment.create({
-            data: {
-              orderId: order.id,
-              accountId: account.id,
-              slotNumber: freeSlot,
-              expiresAt,
-            },
+          const expiresAt = new Date(Date.now() + order.offer.durationInDays * 24 * 60 * 60 * 1000);
+          await tx.profileAssignment.create({
+            data: { orderId: order.id, profileId: profile.id, expiresAt },
           });
-
-          const orderUpdated = await tx.order.updateMany({
-            where: {
-              id: order.id,
-              status: "PENDING",
-            },
-            data: {
-              status: "APPROVED",
-            },
-          });
-
-          if (orderUpdated.count !== 1) {
-            throw new ApprovalError(
-              "ORDER_NOT_PENDING",
-              "Order was already processed by another transaction",
-              409,
-            );
-          }
+          await tx.order.update({ where: { id: order.id }, data: { status: "APPROVED" } });
 
           return {
             orderId: order.id,
             status: "APPROVED" as const,
-            accountId: account.id,
-            slotNumber: freeSlot,
+            accountId: profile.accountId,
+            profileId: profile.id,
+            profileName: profile.profileName,
             expiresAt: expiresAt.toISOString(),
           };
-        }
-
-          throw new ApprovalError(
-            "NO_AVAILABLE_ACCOUNT",
-            "No active account with available slots for this plan",
-            409,
-          );
         },
-        {
-          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-          maxWait: APPROVAL_TX_MAX_WAIT_MS,
-          timeout: APPROVAL_TX_TIMEOUT_MS,
-        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 5000, timeout: 10000 },
       );
 
-      return {
-        ok: true,
-        data: approved,
-      };
+      return { ok: true, data: approved };
     } catch (error) {
       if (error instanceof ApprovalError) {
-        return {
-          ok: false,
-          error: {
-            code: error.code,
-            message: error.message,
-          },
-          statusCode: error.statusCode,
-        };
+        return { ok: false, error: { code: error.code, message: error.message }, statusCode: error.statusCode };
       }
 
-      if (
-        typeof error === "object" &&
-        error !== null &&
-        "code" in error &&
-        (error as { code?: string }).code === "P2002"
-      ) {
-        const alreadyApproved = await prisma.order.findUnique({
-          where: { id: orderId },
-          select: {
-            id: true,
-            status: true,
-            assignment: {
-              select: {
-                accountId: true,
-                slotNumber: true,
-                expiresAt: true,
-              },
-            },
-          },
-        });
-
-        if (alreadyApproved?.status === "APPROVED" && alreadyApproved.assignment) {
-          return {
-            ok: true,
-            data: {
-              orderId: alreadyApproved.id,
-              status: "APPROVED",
-              accountId: alreadyApproved.assignment.accountId,
-              slotNumber: alreadyApproved.assignment.slotNumber,
-              expiresAt: alreadyApproved.assignment.expiresAt.toISOString(),
-            },
-          };
-        }
-      }
-
-      if (isSerializableConflict(error) && attempt < APPROVAL_TX_MAX_RETRIES) {
-        continue;
-      }
-
+      if (isSerializableConflict(error) && attempt < APPROVAL_TX_MAX_RETRIES) continue;
       console.error("approveOrder failed:", error);
-      return {
-        ok: false,
-        error: {
-          code: "INVALID_INPUT",
-          message: "Approval failed due to an unexpected error",
-        },
-        statusCode: 500,
-      };
+      return { ok: false, error: { code: "INVALID_INPUT", message: "Approval failed due to an unexpected error" }, statusCode: 500 };
     }
   }
 
-  return {
-    ok: false,
-    error: {
-      code: "INVALID_INPUT",
-      message: "Approval failed due to repeated transaction conflicts",
-    },
-    statusCode: 500,
-  };
+  return { ok: false, error: { code: "INVALID_INPUT", message: "Approval failed due to repeated transaction conflicts" }, statusCode: 500 };
 }

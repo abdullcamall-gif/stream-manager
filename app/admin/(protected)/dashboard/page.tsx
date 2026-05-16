@@ -1,377 +1,325 @@
 "use client";
 
-import { useEffect, useState, memo } from "react";
-import { 
-  TrendingUp, 
-  Users as UsersIcon, 
-  DollarSign, 
-  Clock, 
-  ExternalLink,
-  Search,
-  RefreshCcw,
-  AlertCircle
-} from "lucide-react";
-import { cn } from "@/lib/utils";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { BarChart3, DollarSign, RefreshCcw, Activity, ShoppingCart } from "lucide-react";
 import { adminFetch } from "@/app/admin/_lib/admin-api";
-import Image from "next/image";
+import { cn } from "@/lib/utils";
 
-type DashboardStats = {
+type RevenueMetrics = {
   totalRevenue: number;
-  activeUsers: number;
+  approvedOrders: number;
+  avgTicket: number;
+};
+
+type RenewalMetrics = {
+  totalAssignments: number;
+  renewed: number;
+  pending: number;
+  expired: number;
+  renewalRate: number;
+  churnRate: number;
+};
+
+type OperationalMetrics = {
+  totalProfiles: number;
+  activeProfiles: number;
+  occupiedProfiles: number;
   pendingOrders: number;
+  occupancyRate: number;
 };
 
-type AdminOrder = {
-  id: string;
-  status: "PENDING" | "APPROVED" | "REJECTED";
-  paymentMethod: string;
-  proofImageUrl: string;
-  createdAt: string;
-  customer: { name: string; phone: string };
-  plan: { name: string; service: { name: string } };
-  assignment: null | {
-    slotNumber: number;
-    expiresAt: string;
-    account: { email: string };
-  };
+type TopService = {
+  serviceId: string;
+  serviceName: string;
+  orders: number;
+  revenue: number;
 };
 
-export default function AdminDashboard() {
-  const [orders, setOrders] = useState<AdminOrder[]>([]);
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [selectedOrder, setSelectedOrder] = useState<AdminOrder | null>(null);
+type MonthlyMetric = {
+  month: string;
+  revenue: number;
+  orders: number;
+};
+
+export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [processingId, setProcessingId] = useState<string | null>(null);
-  const [mounted, setMounted] = useState(false);
+  const [revenue, setRevenue] = useState<RevenueMetrics | null>(null);
+  const [operational, setOperational] = useState<OperationalMetrics | null>(null);
+  const [topServices, setTopServices] = useState<TopService[]>([]);
+  const [monthly, setMonthly] = useState<MonthlyMetric[]>([]);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const maxMonthlyRevenue = useMemo(() => {
+    if (monthly.length === 0) return 1;
+    return Math.max(...monthly.map((item) => item.revenue), 1);
+  }, [monthly]);
 
-  const timeFormatter = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" });
-  const dateTimeLongFormatter = new Intl.DateTimeFormat("pt-BR", {
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-  const dateFormatter = new Intl.DateTimeFormat("pt-BR");
+  const maxTopRevenue = useMemo(() => {
+    if (topServices.length === 0) return 1;
+    return Math.max(...topServices.map((item) => item.revenue), 1);
+  }, [topServices]);
 
-  const fetchData = async () => {
-    setLoading(true);
-    setError("");
-    const [statsRes, ordersRes] = await Promise.all([
-      adminFetch<DashboardStats>("/api/admin/stats"),
-      adminFetch<AdminOrder[]>("/api/admin/orders")
+  const fetchAnalytics = useCallback(async () => {
+    // We remove synchronous setState calls here to avoid "cascading renders" warnings in useEffect.
+    // The loading state is already true by default, and for refreshes, we set it in the event handlers.
+
+    const [revenueRes, operationalRes, topServicesRes, monthlyRes] = await Promise.all([
+      adminFetch<RevenueMetrics>("/api/admin/analytics/revenue"),
+      adminFetch<OperationalMetrics>("/api/admin/analytics/operational"),
+      adminFetch<TopService[]>("/api/admin/analytics/top-services"),
+      adminFetch<MonthlyMetric[]>("/api/admin/analytics/monthly?months=6&tz=Africa/Maputo"),
     ]);
 
-    if (!statsRes.ok) {
-      setError(statsRes.message);
+    const failed = [revenueRes, operationalRes, topServicesRes, monthlyRes].find((item) => !item.ok);
+    if (failed && !failed.ok) {
+      setError(failed.message);
       setLoading(false);
       return;
     }
 
-    if (!ordersRes.ok) {
-      setError(ordersRes.message);
-      setLoading(false);
-      return;
-    }
-
-    setStats(statsRes.data);
-    setOrders(ordersRes.data);
-    if (ordersRes.data.length > 0) {
-      setSelectedOrder(ordersRes.data[0]);
-    }
+    setRevenue((revenueRes as { ok: true; data: RevenueMetrics }).data);
+    setOperational((operationalRes as { ok: true; data: OperationalMetrics }).data);
+    setTopServices((topServicesRes as { ok: true; data: TopService[] }).data);
+    setMonthly((monthlyRes as { ok: true; data: MonthlyMetric[] }).data);
+    setError("");
     setLoading(false);
-  };
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void fetchData();
   }, []);
 
-  const handleAction = async (orderId: string, action: "approve" | "reject") => {
-    setProcessingId(orderId);
-    const endpoint = action === "approve" 
-      ? `/api/admin/orders/${orderId}/approve` 
-      : `/api/admin/orders/${orderId}/reject`;
-    
-    const result = await adminFetch<{ ok: boolean }>(endpoint, { method: "PATCH" });
-    
-    if (result.ok) {
-      await fetchData(); // Refresh data
-    } else {
-      alert(result.message);
-    }
-    setProcessingId(null);
-  };
+  useEffect(() => {
+    // We defer the execution to the next tick to avoid "cascading renders" 
+    // warnings during the initial mount phase. This ensures that the 
+    // state updates happen after the render cycle is fully committed.
+    const timer = setTimeout(() => {
+      void fetchAnalytics();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [fetchAnalytics]);
 
-  if (loading && !stats) {
-    return (
-      <div className="flex h-[80vh] items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
-          <p className="text-on-surface-variant font-headline text-sm animate-pulse">Carregando painel de controle...</p>
-        </div>
-      </div>
-    );
+  if (loading && !revenue) {
+    return <div className="p-10 text-slate-300">Carregando analytics...</div>;
   }
 
   if (error) {
     return (
-      <div className="flex h-[80vh] items-center justify-center">
-        <div className="liquid-glass p-8 rounded-3xl border border-rose-500/20 text-center space-y-4 max-w-md">
-          <AlertCircle className="w-12 h-12 text-rose-500 mx-auto" />
-          <h2 className="text-xl font-bold text-white">Erro ao carregar dados</h2>
-          <p className="text-on-surface-variant">{error}</p>
-          <button 
-            onClick={fetchData}
-            className="px-6 py-2 bg-white/5 border border-white/10 rounded-xl text-white hover:bg-white/10 transition-all flex items-center gap-2 mx-auto"
-          >
-            <RefreshCcw className="w-4 h-4" /> Tentar novamente
-          </button>
-        </div>
+      <div className="p-10 space-y-4">
+        <p className="text-rose-400">Erro ao carregar analytics: {error}</p>
+        <button onClick={() => {
+          setLoading(true);
+          setError("");
+          void fetchAnalytics();
+        }} className="rounded bg-slate-700 text-white px-3 py-2">Tentar novamente</button>
       </div>
     );
   }
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-700">
-      {/* Metrics Row */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <MetricCard 
-          label="Saldo Total" 
-          value={`${stats?.totalRevenue.toLocaleString()} MT`} 
-          change="+0%" 
-          icon={DollarSign} 
-          color="text-primary" 
+    <div className="space-y-10 animate-in fade-in duration-1000">
+      {/* Header Section */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div>
+          <h1 className="font-headline text-4xl font-bold text-white tracking-tight">Admin Dashboard</h1>
+          <p className="text-on-surface-variant mt-1 flex items-center gap-2 text-sm">
+            <Activity className="w-3 h-3 text-primary" />
+            Operação estável em Africa/Maputo
+          </p>
+        </div>
+        <button 
+          onClick={() => {
+            setLoading(true);
+            setError("");
+            void fetchAnalytics();
+          }} 
+          className="group flex items-center gap-3 px-6 py-3 bg-white/5 border border-white/10 rounded-2xl text-on-surface hover:text-white hover:bg-white/10 transition-all active:scale-95"
+        >
+          <RefreshCcw className={cn("w-4 h-4 transition-transform duration-500", loading && "animate-spin")} />
+          <span className="font-headline text-xs font-bold uppercase tracking-widest">Sincronizar Dados</span>
+        </button>
+      </div>
+
+      {/* Main Stats Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <StatCard 
+          title="Receita Total" 
+          value={revenue?.totalRevenue ?? 0} 
+          unit="MT" 
+          icon={<DollarSign className="w-5 h-5" />}
+          color="primary"
         />
-        <MetricCard 
-          label="Usuários Ativos" 
-          value={stats?.activeUsers.toString() || "0"} 
-          change="+0%" 
-          icon={UsersIcon} 
-          color="text-secondary" 
+        <StatCard 
+          title="Ticket Médio" 
+          value={revenue?.avgTicket ?? 0} 
+          unit="MT" 
+          icon={<BarChart3 className="w-5 h-5" />}
+          color="cyan"
         />
-        <MetricCard 
-          label="Pedidos Pendentes" 
-          value={stats?.pendingOrders.toString() || "0"} 
-          change="Real-time" 
-          icon={Clock} 
-          color="text-yellow-500" 
+        <StatCard 
+          title="Pedidos Aprovados" 
+          value={revenue?.approvedOrders ?? 0} 
+          unit="" 
+          icon={<Activity className="w-5 h-5" />}
+          color="emerald"
+        />
+        <StatCard 
+          title="Pedidos Pendentes" 
+          value={operational?.pendingOrders ?? 0} 
+          unit="" 
+          icon={<ShoppingCart className="w-5 h-5" />}
+          color="amber"
+          isPending={Number(operational?.pendingOrders ?? 0) > 0}
         />
       </div>
 
-      {/* Main Inbox Split-View */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-[calc(100vh-280px)]">
-        {/* Left Side: Orders List */}
-        <div className="lg:col-span-4 liquid-glass rounded-3xl border border-white/5 flex flex-col overflow-hidden">
-          <div className="p-6 border-b border-white/5 flex justify-between items-center">
-            <h2 className="font-headline text-lg font-bold text-white">Pedidos Recentes</h2>
-            <div className="flex gap-2">
-              <button className="p-2 hover:bg-white/5 rounded-lg transition-colors text-on-surface-variant"><Search className="w-4 h-4" /></button>
-              <button 
-                onClick={fetchData}
-                disabled={loading}
-                className="p-2 hover:bg-white/5 rounded-lg transition-colors text-on-surface-variant disabled:opacity-50"
-              >
-                <RefreshCcw className={cn("w-4 h-4", loading && "animate-spin")} />
-              </button>
+      {/* Analytics Charts/Lists */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Monthly Performance */}
+        <div className="lg:col-span-2 liquid-glass rounded-3xl border border-white/5 p-8 space-y-8">
+          <div className="flex items-center justify-between">
+            <h2 className="font-headline text-xl font-bold text-white">Desempenho Mensal</h2>
+            <div className="px-3 py-1 bg-primary/10 rounded-full text-[10px] font-bold text-primary uppercase tracking-widest border border-primary/20">
+              Últimos 6 Meses
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar">
-            {orders.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-on-surface-variant space-y-2">
-                <Clock className="w-8 h-8 opacity-20" />
-                <p className="text-xs">Nenhum pedido recente</p>
+          
+          <div className="space-y-6">
+            {monthly.map((item) => (
+              <div key={item.month} className="space-y-2 group">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-on-surface-variant uppercase tracking-wider group-hover:text-white transition-colors">{item.month}</span>
+                  <div className="flex items-center gap-3">
+                    <span className="text-[10px] text-on-surface-variant">{item.orders} pedidos</span>
+                    <span className="text-sm font-bold text-white">MZN {item.revenue.toLocaleString()}</span>
+                  </div>
+                </div>
+                <div className="h-2.5 bg-white/5 rounded-full overflow-hidden border border-white/5">
+                  <div 
+                    className="h-full bg-gradient-to-r from-primary to-cyan-400 shadow-[0_0_12px_rgba(81,243,227,0.4)] transition-all duration-1000" 
+                    style={{ width: `${(item.revenue / maxMonthlyRevenue) * 100}%` }} 
+                  />
+                </div>
               </div>
-            ) : orders.map((order) => (
-              <button
-                key={order.id}
-                onClick={() => setSelectedOrder(order)}
-                className={cn(
-                  "w-full text-left p-4 rounded-2xl transition-all border group",
-                  selectedOrder?.id === order.id 
-                    ? "bg-primary/10 border-primary/30" 
-                    : "border-transparent hover:bg-white/5"
-                )}
-              >
-                <div className="flex justify-between items-start mb-2">
-                  <span className="font-headline text-[10px] font-bold text-on-surface-variant group-hover:text-primary transition-colors uppercase tracking-wider">
-                    {order.id.split('-')[0]}
-                  </span>
-                  <span className="text-[10px] text-on-surface-variant/60">
-                    {mounted ? timeFormatter.format(new Date(order.createdAt)) : "--:--"}
-                  </span>
-                </div>
-                <p className="font-headline text-sm font-bold text-white mb-1 truncate">{order.customer.name}</p>
-                <div className="flex justify-between items-center">
-                  <span className="text-[10px] text-on-surface-variant uppercase tracking-tight">
-                    {order.plan.service.name} • {order.plan.name}
-                  </span>
-                  <StatusBadge status={order.status} />
-                </div>
-              </button>
             ))}
           </div>
         </div>
 
-        {/* Right Side: Order Details */}
-        <div className="lg:col-span-8 liquid-glass rounded-3xl border border-white/5 flex flex-col overflow-hidden">
-          {selectedOrder ? (
-            <div className="p-8 flex-1 overflow-y-auto space-y-8">
-              <div className="flex flex-col md:flex-row justify-between items-start gap-6">
-                <div>
-                  <h1 className="font-headline text-3xl font-bold text-white mb-2">{selectedOrder.customer.name}</h1>
-                  <p className="text-on-surface-variant text-sm">
-                    Pedido realizado em {mounted ? dateTimeLongFormatter.format(new Date(selectedOrder.createdAt)) : "..."}
-                  </p>
-                  <p className="text-primary font-bold text-sm mt-1">{selectedOrder.customer.phone}</p>
+        {/* Top Services */}
+        <div className="liquid-glass rounded-3xl border border-white/5 p-8 space-y-8">
+          <h2 className="font-headline text-xl font-bold text-white">Best Sellers</h2>
+          <div className="space-y-8">
+            {topServices.map((service, idx) => (
+              <div key={service.serviceId} className="flex items-center gap-4 group">
+                <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center font-headline font-bold text-on-surface-variant group-hover:text-primary group-hover:border-primary/50 transition-all">
+                  {idx + 1}
                 </div>
-                
-                {selectedOrder.status === "PENDING" && (
-                  <div className="flex gap-3">
-                    <button 
-                      disabled={processingId === selectedOrder.id}
-                      onClick={() => handleAction(selectedOrder.id, "reject")}
-                      className="px-6 py-3 bg-red-500/10 text-red-500 font-headline font-bold text-xs rounded-xl hover:bg-red-500/20 transition-all border border-red-500/20 disabled:opacity-50"
-                    >
-                      {processingId === selectedOrder.id ? "Processando..." : "Rejeitar"}
-                    </button>
-                    <button 
-                      disabled={processingId === selectedOrder.id}
-                      onClick={() => handleAction(selectedOrder.id, "approve")}
-                      className="px-6 py-3 bg-primary text-on-primary font-headline font-bold text-xs rounded-xl hover:scale-105 transition-all disabled:opacity-50 shadow-lg shadow-primary/20"
-                    >
-                      {processingId === selectedOrder.id ? "Ativando..." : "Aprovar Pedido"}
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                {/* Proof Image */}
-                <div className="space-y-4">
-                  <h3 className="font-headline text-xs font-bold tracking-widest text-on-surface-variant uppercase">Comprovante de Pagamento</h3>
-                  <div className="relative aspect-video rounded-2xl overflow-hidden border border-white/10 group cursor-zoom-in bg-white/5">
-                    <Image
-                      src={selectedOrder.proofImageUrl}
-                      className="w-full h-full object-contain grayscale group-hover:grayscale-0 transition-all duration-500"
-                      alt="Comprovante"
-                      fill
-                      unoptimized
-                    />
-                    <a 
-                      href={selectedOrder.proofImageUrl} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
-                    >
-                      <ExternalLink className="w-8 h-8 text-white" />
-                    </a>
-                  </div>
-                  <div className="flex justify-between items-center text-[10px] text-on-surface-variant uppercase tracking-widest px-1">
-                    <span>Método: {selectedOrder.paymentMethod}</span>
-                    <span>Status: {selectedOrder.status}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold text-white truncate">{service.serviceName}</p>
+                  <p className="text-[10px] text-on-surface-variant uppercase tracking-widest">{service.orders} vendas</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs font-bold text-primary">MZN {service.revenue.toLocaleString()}</p>
+                  <div className="mt-1 h-1 w-12 bg-white/5 rounded-full overflow-hidden ml-auto">
+                    <div className="h-full bg-primary" style={{ width: `${(service.revenue / maxTopRevenue) * 100}%` }} />
                   </div>
                 </div>
-
-                {/* Account Details / Assignment */}
-                <div className="space-y-4">
-                  <h3 className="font-headline text-xs font-bold tracking-widest text-on-surface-variant uppercase">Detalhes da Ativação</h3>
-                  {selectedOrder.status === "APPROVED" && selectedOrder.assignment ? (
-                    <div className="p-6 rounded-2xl bg-primary/5 border border-primary/20 space-y-4">
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-                          <UsersIcon className="w-5 h-5 text-primary" />
-                        </div>
-                        <div>
-                          <p className="text-[10px] text-on-surface-variant uppercase font-bold tracking-widest">Conta Designada</p>
-                          <p className="text-white font-bold">{selectedOrder.assignment.account.email}</p>
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4 pt-2">
-                        <div className="bg-white/5 p-3 rounded-xl border border-white/5">
-                          <p className="text-[9px] text-on-surface-variant uppercase font-bold">Slot</p>
-                          <p className="text-white font-bold">#{selectedOrder.assignment.slotNumber}</p>
-                        </div>
-                        <div className="bg-white/5 p-3 rounded-xl border border-white/5">
-                          <p className="text-[9px] text-on-surface-variant uppercase font-bold">Expira em</p>
-                          <p className="text-white font-bold">{mounted ? dateFormatter.format(new Date(selectedOrder.assignment.expiresAt)) : "..."}</p>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center h-48 border border-white/5 rounded-2xl bg-white/[0.02] text-center p-6">
-                      <Clock className="w-8 h-8 text-on-surface-variant/30 mb-4" />
-                      <p className="text-sm text-on-surface-variant">
-                        {selectedOrder.status === "PENDING" 
-                          ? "Aguardando aprovação para designar conta e slot." 
-                          : "Este pedido não foi aprovado."}
-                      </p>
-                    </div>
-                  )}
-                </div>
               </div>
-            </div>
-          ) : (
-            <div className="flex-1 flex flex-col items-center justify-center text-on-surface-variant space-y-4 p-8 text-center">
-              <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center border border-white/10">
-                <Clock className="w-8 h-8 opacity-20" />
-              </div>
-              <h3 className="font-headline font-bold text-white">Nenhum pedido selecionado</h3>
-              <p className="text-sm max-w-xs">Selecione um pedido na lista ao lado para ver os detalhes e realizar ações.</p>
-            </div>
-          )}
+            ))}
+          </div>
         </div>
+      </div>
+
+      {/* Operational Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <OperationalTile 
+          label="Perfis Totais" 
+          value={operational?.totalProfiles ?? 0} 
+          subValue={`${operational?.occupiedProfiles ?? 0} em uso`}
+        />
+        <OperationalTile 
+          label="Taxa de Ocupação" 
+          value={`${((operational?.occupancyRate ?? 0) * 100).toFixed(1)}%`}
+          progress={operational?.occupancyRate ?? 0}
+        />
+        <OperationalTile 
+          label="Status do Sistema" 
+          value="ATIVO" 
+          status="ONLINE"
+        />
       </div>
     </div>
   );
 }
 
-const MetricCard = memo(function MetricCard({
-  label,
-  value,
-  change,
-  icon: Icon,
-  color,
-}: {
-  label: string;
-  value: string;
-  change: string;
-  icon: React.ComponentType<{ className?: string }>;
-  color: string;
-}) {
+function StatCard({ title, value, unit, icon, color, isPending }: { title: string; value: number | string; unit: string; icon: React.ReactNode; color: string; isPending?: boolean }) {
   return (
-    <div className="liquid-glass p-8 rounded-3xl border border-white/5 space-y-4 group hover:border-primary/20 transition-all">
-      <div className="flex justify-between items-center">
-        <div className={cn("p-3 rounded-2xl bg-white/5 group-hover:scale-110 transition-transform", color)}>
-          <Icon className="w-6 h-6" />
-        </div>
-        <div className="flex items-center gap-1 text-[10px] font-bold text-primary bg-primary/10 px-2 py-1 rounded-full uppercase tracking-wider">
-          <TrendingUp className="w-3 h-3" />
-          {change}
+    <div className={cn(
+      "liquid-glass p-6 rounded-3xl border border-white/5 relative overflow-hidden group hover:border-white/20 transition-all duration-500",
+      isPending && "border-amber-500/30 shadow-[0_0_20px_rgba(245,158,11,0.05)]"
+    )}>
+      <div className="absolute -right-4 -top-4 w-24 h-24 bg-white/5 rounded-full blur-3xl group-hover:bg-primary/10 transition-all" />
+      
+      <div className="flex items-center justify-between mb-4 relative z-10">
+        <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-[0.2em]">{title}</span>
+        <div className="w-8 h-8 rounded-xl bg-white/5 flex items-center justify-center text-on-surface-variant group-hover:text-white transition-colors border border-white/5">
+          {icon}
         </div>
       </div>
-      <div>
-        <p className="text-on-surface-variant font-body text-sm mb-1">{label}</p>
-        <p className="font-headline text-3xl font-bold text-white tracking-tight">{value}</p>
+      
+      <div className="relative z-10">
+        <div className="flex items-baseline gap-1">
+          <span className="text-3xl font-headline font-bold text-white tracking-tighter">
+            {typeof value === 'number' ? value.toLocaleString() : value}
+          </span>
+          {unit && <span className="text-xs text-on-surface-variant font-bold">{unit}</span>}
+        </div>
+        {isPending && (
+          <div className="mt-2 inline-flex items-center gap-1.5 px-2 py-0.5 bg-amber-500/10 rounded-full border border-amber-500/20">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+            <span className="text-[8px] font-bold text-amber-500 uppercase tracking-widest">Ação Necessária</span>
+          </div>
+        )}
       </div>
     </div>
   );
-});
+}
 
-const StatusBadge = memo(function StatusBadge({ status }: { status: string }) {
-  const styles: Record<string, string> = {
-    PENDING: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
-    APPROVED: "bg-primary/10 text-primary border-primary/20",
-    REJECTED: "bg-red-500/10 text-red-500 border-red-500/20",
-  };
+function OperationalTile({ label, value, subValue, progress, status }: { label: string; value: string | number; subValue?: string; progress?: number; status?: string }) {
   return (
-    <span className={cn("px-2 py-0.5 rounded-full border text-[9px] font-bold tracking-widest uppercase", styles[status])}>
-      {status}
-    </span>
+    <div className="liquid-glass p-6 rounded-2xl border border-white/5 group hover:bg-white/[0.02] transition-all">
+      <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-1">{label}</p>
+      <div className="flex items-end justify-between gap-4">
+        <div>
+          <p className="text-2xl font-headline font-bold text-white">{value}</p>
+          {subValue && <p className="text-[10px] text-primary font-bold uppercase mt-1 tracking-wider">{subValue}</p>}
+          {status && (
+             <div className="mt-2 inline-flex items-center gap-1.5 px-2 py-0.5 bg-emerald-500/10 rounded-full border border-emerald-500/20">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+              <span className="text-[8px] font-bold text-emerald-500 uppercase tracking-widest">{status}</span>
+            </div>
+          )}
+        </div>
+        {progress !== undefined && (
+          <div className="w-10 h-10 rounded-full border-2 border-white/5 flex items-center justify-center text-[10px] font-bold text-white relative">
+             <svg className="absolute inset-0 w-full h-full -rotate-90">
+                <circle 
+                  cx="20" cy="20" r="18" 
+                  fill="none" 
+                  stroke="currentColor" 
+                  strokeWidth="2"
+                  className="text-white/5"
+                />
+                <circle 
+                  cx="20" cy="20" r="18" 
+                  fill="none" 
+                  stroke="currentColor" 
+                  strokeWidth="2"
+                  strokeDasharray="113.1"
+                  strokeDashoffset={113.1 - (113.1 * progress)}
+                  className="text-primary"
+                />
+             </svg>
+             {Math.round(progress * 100)}%
+          </div>
+        )}
+      </div>
+    </div>
   );
-});
+}

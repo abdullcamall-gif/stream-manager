@@ -12,7 +12,7 @@ export type PlanListItem = {
 };
 
 export async function findActivePlans(): Promise<PlanListItem[]> {
-  const plans = await prisma.plan.findMany({
+  const plans = await prisma.productOffer.findMany({
     where: {
       price: { gt: 0 },
       durationInDays: { gt: 0 },
@@ -26,8 +26,6 @@ export async function findActivePlans(): Promise<PlanListItem[]> {
       name: true,
       price: true,
       durationInDays: true,
-      maxSlots: true,
-      isShared: true,
       service: {
         select: {
           name: true,
@@ -44,7 +42,7 @@ export async function findActivePlans(): Promise<PlanListItem[]> {
     name: plan.name,
     price: Number(plan.price),
     durationInDays: plan.durationInDays,
-    maxSlots: plan.maxSlots,
-    isShared: plan.isShared,
+    maxSlots: 1,
+    isShared: true,
   }));
 }

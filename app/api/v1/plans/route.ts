@@ -1,4 +1,4 @@
-import { listCatalogPlans } from "@/lib/services";
+import { listCatalogPlans } from "@/lib/services/catalog.service";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -25,3 +25,4 @@ export async function GET() {
     );
   }
 }
+

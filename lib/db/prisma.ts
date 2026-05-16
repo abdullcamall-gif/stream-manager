@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 
@@ -9,9 +10,10 @@ declare global {
  * Shared Prisma client for server-side usage.
  * Business rules must follow docs/system.contract.md.
  */
-const databaseUrl =
-  process.env.DATABASE_URL ??
-  "postgresql://USER:PASSWORD@localhost:5432/stream_saas?schema=public";
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl) {
+  throw new Error("Missing DATABASE_URL for Prisma client initialization");
+}
 
 const adapter = new PrismaPg({
   connectionString: databaseUrl,

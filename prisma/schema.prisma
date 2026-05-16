@@ -12,6 +12,8 @@ model AdminUser {
   passwordHash String
   role         AdminRole @default(ADMIN)
   createdAt    DateTime  @default(now())
+
+  auditLogs AuditLog[]
 }
 
 enum AdminRole {
@@ -19,77 +21,132 @@ enum AdminRole {
   SUPPORT
 }
 
-model Customer {
-  id        String   @id @default(uuid())
-  name      String
-  phone     String   @unique
-  createdAt DateTime @default(now())
-
-  orders Order[]
-
-  @@index([phone])
+enum ProfileStatus {
+  AVAILABLE
+  OCCUPIED
+  MAINTENANCE
 }
 
-model Service {
+enum AssignmentStatus {
+  ACTIVE
+  EXPIRED
+}
+
+enum CustomerStatus {
+  ACTIVE
+  INACTIVE
+  BLOCKED
+}
+
+model Customer {
+  id               String         @id @default(uuid())
+  name             String
+  phone            String         @unique
+  status           CustomerStatus @default(ACTIVE)
+  lastReminderSent DateTime?
+  createdAt        DateTime       @default(now())
+
+  orders     Order[]
+  accessLogs AccessLog[]
+  notifications Notification[]
+
+  @@index([phone])
+  @@index([status])
+}
+
+model Notification {
+  id         String   @id @default(uuid())
+  customerId String
+  type       String   // e.g. "EXPIRATION_WARNING", "RENEWAL_CONFIRMATION"
+  content    String
+  isRead     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@index([createdAt])
+}
+
+model StreamingService {
   id        String   @id @default(uuid())
   name      String   @unique
+  slug      String   @unique
+  logoUrl   String?
+  bannerUrl String?
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
 
-  plans    Plan[]
-  accounts Account[]
+  offers   ProductOffer[]
+  accounts StreamingAccount[]
 }
 
-model Plan {
+model ProductOffer {
   id             String   @id @default(uuid())
   serviceId      String
   name           String
   price          Decimal  @db.Decimal(10, 2)
   durationInDays Int
-  maxSlots       Int
-  isShared       Boolean
   createdAt      DateTime @default(now())
 
-  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  service StreamingService @relation(fields: [serviceId], references: [id], onDelete: Cascade)
   orders  Order[]
 
   @@index([serviceId])
 }
 
-model Account {
-  id             String   @id @default(uuid())
-  serviceId      String
-  email          String
-  password       String
-  totalSlots     Int
-  availableSlots Int
-  isActive       Boolean  @default(true)
-  createdAt      DateTime @default(now())
+model StreamingAccount {
+  id        String   @id @default(uuid())
+  serviceId String
+  email     String
+  password  String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
 
-  service Service           @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  assignments OrderAssignment[]
+  service  StreamingService   @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  profiles StreamingProfile[]
 
   @@index([serviceId])
   @@index([email])
 }
 
+model StreamingProfile {
+  id          String        @id @default(uuid())
+  accountId   String
+  profileName String
+  pin         String?
+  status      ProfileStatus @default(AVAILABLE)
+  isAvailable Boolean       @default(true)
+  expiresAt   DateTime?
+  isExpired   Boolean       @default(false)
+  createdAt   DateTime      @default(now())
+
+  account     StreamingAccount    @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  assignments ProfileAssignment[]
+
+  @@index([accountId])
+  @@index([status])
+  @@index([isExpired])
+}
+
 model Order {
   id            String        @id @default(uuid())
   customerId    String
-  planId        String
+  offerId       String
   status        OrderStatus   @default(PENDING)
   paymentMethod PaymentMethod
   proofImageUrl String
   createdAt     DateTime      @default(now())
 
-  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  plan     Plan     @relation(fields: [planId], references: [id])
+  customer Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  offer    ProductOffer @relation(fields: [offerId], references: [id])
 
-  assignment OrderAssignment?
+  assignment ProfileAssignment?
 
   @@index([customerId])
-  @@index([planId])
+  @@index([offerId])
   @@index([status])
+  @@index([createdAt])
 }
 
 enum OrderStatus {
@@ -105,18 +162,105 @@ enum PaymentMethod {
   BIM
 }
 
-model OrderAssignment {
-  id         String   @id @default(uuid())
-  orderId    String   @unique
-  accountId  String
-  slotNumber Int
-  expiresAt  DateTime
-  createdAt  DateTime @default(now())
-
-  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
-
-  @@index([accountId])
-  @@index([expiresAt])
+enum RenewalStatus {
+  NONE
+  PENDING
+  RENEWED
+  EXPIRED
 }
 
+model ProfileAssignment {
+  id                         String           @id @default(uuid())
+  orderId                    String           @unique
+  profileId                  String
+  status                     AssignmentStatus @default(ACTIVE)
+  isExpired                  Boolean          @default(false)
+  expiresAt                  DateTime
+  renewalStatus              RenewalStatus    @default(NONE)
+  renewedAt                  DateTime?
+  expirationNotificationSent Boolean          @default(false)
+  createdAt                  DateTime         @default(now())
+
+  order   Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  profile StreamingProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId])
+  @@index([expiresAt])
+  @@index([renewalStatus])
+  @@index([status])
+  @@index([isExpired])
+  @@index([renewedAt])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  adminUserId String?
+  action      String
+  resource    String
+  resourceId  String?
+  metadata    Json?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  adminUser AdminUser? @relation(fields: [adminUserId], references: [id], onDelete: SetNull)
+
+  @@index([adminUserId])
+  @@index([action])
+  @@index([resource])
+  @@index([createdAt])
+}
+
+model AccessLog {
+  id         String   @id @default(uuid())
+  customerId String?
+  path       String
+  method     String
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@index([customerId])
+  @@index([path])
+  @@index([createdAt])
+}
+
+model SecurityEvent {
+  id        String   @id @default(uuid())
+  eventType String
+  severity  String
+  message   String
+  metadata  Json?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([eventType])
+  @@index([severity])
+  @@index([createdAt])
+}
+
+enum MessageStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+model WhatsappMessageLog {
+  id             String        @id @default(uuid())
+  to             String
+  content        String
+  status         MessageStatus @default(PENDING)
+  deliveryStatus String?       // From API (e.g. "delivered", "read")
+  retryCount     Int           @default(0)
+  lastAttemptAt  DateTime?
+  error          String?
+  metadata       Json?         // To store orderId, etc.
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([status])
+  @@index([to])
+}

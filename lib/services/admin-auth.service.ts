@@ -5,6 +5,7 @@ import jwt from "jsonwebtoken";
 import { type AdminRole } from "@prisma/client";
 
 const JWT_EXPIRATION = "8h";
+const ADMIN_JWT_SECRET = process.env.ADMIN_JWT_SECRET || "stream-saas-ultra-secure-key-2024";
 
 type AuthErrorCode = "INVALID_INPUT" | "UNAUTHORIZED" | "FORBIDDEN";
 
@@ -15,16 +16,12 @@ type AdminJwtPayload = {
 };
 
 export type AdminAuthResult =
-  | { ok: true; data: { token: string } }
+  | { ok: true; data: { token: string; adminId: string; email: string } }
   | { ok: false; statusCode: number; error: { code: AuthErrorCode; message: string } };
 
 export type AdminSessionResult =
   | { ok: true; data: AdminJwtPayload }
   | { ok: false; statusCode: number; error: { code: AuthErrorCode; message: string } };
-
-function getJwtSecret(): string | null {
-  return process.env.ADMIN_JWT_SECRET?.trim() || null;
-}
 
 export async function loginAdmin(emailInput: string, passwordInput: string): Promise<AdminAuthResult> {
   void SYSTEM_CONTRACT_PATH;
@@ -62,26 +59,17 @@ export async function loginAdmin(emailInput: string, passwordInput: string): Pro
       };
     }
 
-    const jwtSecret = getJwtSecret();
-    if (!jwtSecret) {
-      return {
-        ok: false,
-        statusCode: 500,
-        error: { code: "UNAUTHORIZED", message: "missing ADMIN_JWT_SECRET" },
-      };
-    }
-
     const token = jwt.sign(
       {
         sub: admin.id,
         email: admin.email,
         role: admin.role,
       } satisfies AdminJwtPayload,
-      jwtSecret,
+      ADMIN_JWT_SECRET,
       { expiresIn: JWT_EXPIRATION },
     );
 
-    return { ok: true, data: { token } };
+    return { ok: true, data: { token, adminId: admin.id, email: admin.email } };
   } catch (error) {
     console.error("loginAdmin prisma error:", error);
     const message =
@@ -113,18 +101,9 @@ export async function authorizeAdmin(
     };
   }
 
-  const jwtSecret = getJwtSecret();
-  if (!jwtSecret) {
-    return {
-      ok: false,
-      statusCode: 500,
-      error: { code: "UNAUTHORIZED", message: "missing ADMIN_JWT_SECRET" },
-    };
-  }
-
   const token = authorizationHeader.slice("Bearer ".length).trim();
   try {
-    const decoded = jwt.verify(token, jwtSecret) as Partial<AdminJwtPayload>;
+    const decoded = jwt.verify(token, ADMIN_JWT_SECRET) as Partial<AdminJwtPayload>;
     const subject = typeof decoded.sub === "string" ? decoded.sub : "";
     const role = decoded.role === "ADMIN" || decoded.role === "SUPPORT" ? decoded.role : null;
 
@@ -147,27 +126,10 @@ export async function authorizeAdmin(
       };
     }
 
-    // Backward-compatible fallback for tokens that may not carry role.
-    const admin = await prisma.adminUser.findUnique({
-      where: { id: subject },
-      select: { email: true, role: true },
-    });
-
-    if (!admin || !allowedRoles.includes(admin.role)) {
-      return {
-        ok: false as const,
-        statusCode: 403,
-        error: { code: "FORBIDDEN" as const, message: "insufficient role" },
-      };
-    }
-
     return {
-      ok: true as const,
-      data: {
-        sub: subject,
-        email: admin.email,
-        role: admin.role,
-      },
+      ok: false as const,
+      statusCode: 403,
+      error: { code: "FORBIDDEN" as const, message: "insufficient role" },
     };
   } catch {
     return {

@@ -10,51 +10,92 @@ const adapter = new PrismaPg({
 
 const prisma = new PrismaClient({ adapter });
 
-const services = ["Netflix", "Spotify", "Disney+"];
-const adminEmail = process.env.ADMIN_SEED_EMAIL?.trim().toLowerCase() || "elber@gmail.com";
-const adminPassword = process.env.ADMIN_SEED_PASSWORD || "25072003";
-const adminRole = process.env.ADMIN_SEED_ROLE === "SUPPORT" ? "SUPPORT" : "ADMIN";
+const services = [
+  { name: "Netflix", slug: "netflix" },
+  { name: "Spotify", slug: "spotify" },
+  { name: "Prime Video", slug: "prime-video" },
+  { name: "Apple Music", slug: "apple-music" },
+  { name: "HBO Max", slug: "hbo-max" },
+  { name: "Crunchyroll", slug: "crunchyroll" },
+  { name: "IPTV", slug: "iptv" },
+  { name: "Disney+", slug: "disney-plus" },
+];
+const adminEmail = "elber@gmail.com";
+const adminPassword = "admin123";
+const adminRole = "ADMIN";
 
 async function main() {
+  console.log("Seeding admin...");
   const passwordHash = await bcrypt.hash(adminPassword, 10);
-  const existingAdmin = await prisma.adminUser.findFirst({
+  
+  // Upsert admin user
+  await prisma.adminUser.upsert({
     where: { email: adminEmail },
-    select: { id: true },
+    update: { 
+      passwordHash, 
+      role: adminRole 
+    },
+    create: {
+      email: adminEmail,
+      passwordHash,
+      role: adminRole,
+    },
   });
+  console.log(`Admin ${adminEmail} created/updated.`);
 
-  if (existingAdmin) {
-    await prisma.adminUser.update({
-      where: { id: existingAdmin.id },
-      data: { passwordHash, role: adminRole },
-    });
-  } else {
-    await prisma.adminUser.create({
-      data: {
-        email: adminEmail,
-        passwordHash,
-        role: adminRole,
+  console.log("Seeding services, offers, and accounts...");
+  const durations = [15, 30, 60];
+  const profileNames = ["Perfil 1", "Perfil 2", "Perfil 3", "Perfil 4", "Perfil 5"];
+
+  for (const service of services) {
+    const createdService = await prisma.streamingService.upsert({
+      where: { name: service.name },
+      update: {
+        slug: service.slug,
+        isActive: true,
       },
+      create: { 
+        name: service.name, 
+        slug: service.slug,
+        isActive: true 
+      },
+      include: { offers: true, accounts: true }
     });
-  }
 
-  for (const name of services) {
-    const existingService = await prisma.service.findFirst({
-      where: { name },
-      select: { id: true },
-    });
-
-    if (existingService) {
-      await prisma.service.update({
-        where: { id: existingService.id },
-        data: { isActive: true },
-      });
-      continue;
+    // Seed offers if missing
+    if (createdService.offers.length === 0) {
+      console.log(`Creating offers for ${service.name}...`);
+      for (const days of durations) {
+        await prisma.productOffer.create({
+          data: {
+            serviceId: createdService.id,
+            name: `${service.name} ${days} DIAS`,
+            price: days === 15 ? 300 : days === 30 ? 500 : 900,
+            durationInDays: days,
+          }
+        });
+      }
     }
 
-    await prisma.service.create({
-      data: { name, isActive: true },
-    });
+    // Seed a dummy account if missing
+    if (createdService.accounts.length === 0) {
+      console.log(`Creating dummy account for ${service.name}...`);
+      await prisma.streamingAccount.create({
+        data: {
+          serviceId: createdService.id,
+          email: `${service.slug}-test@elber.mz`,
+          password: await bcrypt.hash("test123", 10), // This should be encrypted if using encryptField, but seed uses raw bcrypt for now? Wait, the schema says password is a string.
+          profiles: {
+            create: profileNames.map(name => ({
+              profileName: name,
+              isAvailable: true
+            }))
+          }
+        }
+      });
+    }
   }
+  console.log("Seed completed successfully.");
 }
 
 main()

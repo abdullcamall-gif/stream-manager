@@ -1,4 +1,5 @@
 const ADMIN_TOKEN_KEY = "admin_token";
+const ADMIN_CSRF_KEY = "admin_csrf_token";
 export type AdminClientRole = "ADMIN" | "SUPPORT";
 
 type AdminTokenPayload = {
@@ -18,9 +19,20 @@ export function setAdminToken(token: string) {
   localStorage.setItem(ADMIN_TOKEN_KEY, token);
 }
 
+export function setAdminCsrfToken(token: string) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(ADMIN_CSRF_KEY, token);
+}
+
+export function getAdminCsrfToken(): string {
+  if (typeof window === "undefined") return "";
+  return localStorage.getItem(ADMIN_CSRF_KEY) ?? "";
+}
+
 export function clearAdminToken() {
   if (typeof window === "undefined") return;
   localStorage.removeItem(ADMIN_TOKEN_KEY);
+  localStorage.removeItem(ADMIN_CSRF_KEY);
 }
 
 function decodeTokenPayload(token: string): AdminTokenPayload | null {
@@ -66,6 +78,9 @@ export async function adminFetch<T>(
   init?: RequestInit,
 ): Promise<ApiResult<T>> {
   const token = getAdminToken();
+  const csrfToken = getAdminCsrfToken();
+  const method = (init?.method ?? "GET").toUpperCase();
+  const shouldSendCsrf = method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
 
   const response = await fetch(path, {
     ...init,
@@ -73,6 +88,7 @@ export async function adminFetch<T>(
       "Content-Type": "application/json",
       ...(init?.headers ?? {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(shouldSendCsrf && csrfToken ? { "x-csrf-token": csrfToken } : {}),
     },
   });
 

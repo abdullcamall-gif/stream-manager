@@ -1,30 +1,36 @@
 import { SYSTEM_CONTRACT_PATH } from "@/lib/contract";
 import { prisma } from "@/lib/db";
 import { approveOrder } from "@/lib/services/assignment.service";
+import { encryptField, maybeDecryptField } from "@/lib/security/crypto";
+import { generateWhatsAppDeliveryMessage } from "@/lib/services/whatsapp-generator";
+import { sendWhatsAppMessage } from "@/lib/services/whatsapp.service";
 import { AdminRole } from "@prisma/client";
 
-type ServiceInput = { name: string; isActive?: boolean };
-type PlanInput = {
+type ServiceInput = {
+  name: string;
+  slug: string;
+  logoUrl?: string;
+  bannerUrl?: string;
+  isActive?: boolean;
+};
+type OfferInput = {
   serviceId: string;
   name: string;
   price: number;
   durationInDays: number;
-  maxSlots: number;
-  isShared: boolean;
 };
 type AccountInput = {
   serviceId: string;
   email: string;
   password: string;
-  totalSlots: number;
-  availableSlots: number;
+  profileNames: string[];
   isActive?: boolean;
 };
 type AdminInput = { email: string; passwordHash: string; role?: AdminRole };
 
 export async function listAdminOrders() {
   void SYSTEM_CONTRACT_PATH;
-  return prisma.order.findMany({
+  const rows = await prisma.order.findMany({
     select: {
       id: true,
       status: true,
@@ -32,24 +38,48 @@ export async function listAdminOrders() {
       proofImageUrl: true,
       createdAt: true,
       customer: { select: { id: true, name: true, phone: true } },
-      plan: {
+      offer: {
         select: {
           id: true,
           name: true,
+          price: true,
           service: { select: { id: true, name: true } },
         },
       },
       assignment: {
         select: {
           id: true,
-          slotNumber: true,
           expiresAt: true,
-          account: { select: { id: true, email: true } },
+          profile: {
+            select: {
+              id: true,
+              profileName: true,
+              account: { select: { id: true, email: true } },
+            },
+          },
         },
       },
     },
     orderBy: { createdAt: "desc" },
   });
+
+  return rows.map((row) => ({
+    ...row,
+    plan: {
+      id: row.offer.id,
+      name: row.offer.name,
+      price: row.offer.price,
+      service: row.offer.service,
+    },
+    assignment: row.assignment
+      ? {
+          id: row.assignment.id,
+          slotNumber: row.assignment.profile.profileName,
+          expiresAt: row.assignment.expiresAt,
+          account: row.assignment.profile.account,
+        }
+      : null,
+  }));
 }
 
 export async function rejectOrder(orderIdInput: string) {
@@ -71,77 +101,190 @@ export async function rejectOrder(orderIdInput: string) {
 }
 
 export async function approveOrderForAdmin(orderIdInput: string) {
-  return approveOrder(orderIdInput);
+  const result = await approveOrder(orderIdInput);
+  if (!result.ok) return result;
+
+  const order = await prisma.order.findUnique({
+    where: { id: result.data.orderId },
+    select: {
+      offer: { select: { service: { select: { name: true } } } },
+      assignment: {
+        select: {
+          expiresAt: true,
+          profile: {
+            select: {
+              profileName: true,
+              account: { select: { email: true, password: true } },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!order?.assignment) return result;
+  const message = generateWhatsAppDeliveryMessage({
+    serviceName: order.offer.service.name,
+    accountEmail: order.assignment.profile.account.email,
+    accountPassword: maybeDecryptField(order.assignment.profile.account.password),
+    profileName: order.assignment.profile.profileName,
+    expiresAt: order.assignment.expiresAt,
+  });
+
+  // Automate WhatsApp delivery
+  const customerPhone = (await prisma.order.findUnique({
+    where: { id: result.data.orderId },
+    select: { customer: { select: { phone: true } } }
+  }))?.customer.phone;
+
+  if (customerPhone) {
+    const delivery = await sendWhatsAppMessage(customerPhone, message, { orderId: result.data.orderId });
+    const deliveryError =
+      delivery.status === "FAILED"
+        ? delivery.error ?? "Falha ao enviar mensagem no WhatsApp."
+        : null;
+
+    return {
+      ok: true as const,
+      data: {
+        ...result.data,
+        whatsappMessage: message,
+        whatsappDelivery: {
+          status: delivery.status,
+          error: deliveryError,
+        },
+      },
+    };
+  }
+
+  return {
+    ok: true as const,
+    data: {
+      ...result.data,
+      whatsappMessage: message,
+      whatsappDelivery: {
+        status: "FAILED" as const,
+        error: "Cliente sem telefone cadastrado para envio via WhatsApp.",
+      },
+    },
+  };
 }
 
 export async function listServicesAdmin() {
-  return prisma.service.findMany({ orderBy: { id: "desc" } });
+  return prisma.streamingService.findMany({ orderBy: { id: "desc" } });
 }
 export async function createServiceAdmin(input: ServiceInput) {
   const name = input.name.trim();
-  return prisma.service.create({ data: { name, isActive: input.isActive ?? true } });
+  const slug = input.slug.trim().toLowerCase().replace(/\s+/g, "-");
+  return prisma.streamingService.create({
+    data: {
+      name,
+      slug,
+      logoUrl: input.logoUrl,
+      bannerUrl: input.bannerUrl,
+      isActive: input.isActive ?? true,
+    },
+  });
 }
+
+export async function createServiceWithOffers(input: ServiceInput & { durations: number[]; price: number; accountEmail: string; accountPassword: string; profileNames: string[] }) {
+  const name = input.name.trim();
+  const slug = input.slug.trim().toLowerCase().replace(/\s+/g, "-");
+  const durations = Array.from(new Set(input.durations.filter((d) => Number.isFinite(d) && d > 0)));
+  const profiles = input.profileNames.map((p) => p.trim()).filter(Boolean);
+
+  return prisma.streamingService.create({
+    data: {
+      name,
+      slug,
+      logoUrl: input.logoUrl,
+      bannerUrl: input.bannerUrl,
+      isActive: input.isActive ?? true,
+      offers: {
+        create: durations.map((durationInDays) => ({
+          name: `${name} ${durationInDays} dias`,
+          price: input.price,
+          durationInDays,
+        })),
+      },
+      accounts: {
+        create: {
+          email: input.accountEmail.trim().toLowerCase(),
+          password: encryptField(input.accountPassword),
+          isActive: true,
+          profiles: {
+            create: profiles.map((profileName) => ({ profileName, isAvailable: true })),
+          },
+        },
+      },
+    },
+    include: {
+      offers: true,
+      accounts: { include: { profiles: true } },
+    },
+  });
+}
+
 export async function updateServiceAdmin(id: string, input: Partial<ServiceInput>) {
-  return prisma.service.update({ where: { id }, data: input });
+  return prisma.streamingService.update({ where: { id }, data: input });
 }
 export async function deleteServiceAdmin(id: string) {
-  return prisma.service.delete({ where: { id } });
+  return prisma.streamingService.delete({ where: { id } });
 }
 
 export async function listPlansAdmin() {
-  return prisma.plan.findMany({ include: { service: true }, orderBy: { id: "desc" } });
+  return prisma.productOffer.findMany({ include: { service: true }, orderBy: { id: "desc" } });
 }
-export async function createPlanAdmin(input: PlanInput) {
-  return prisma.plan.create({
+export async function createPlanAdmin(input: OfferInput) {
+  return prisma.productOffer.create({
     data: {
       serviceId: input.serviceId,
       name: input.name.trim(),
       price: input.price,
       durationInDays: input.durationInDays,
-      maxSlots: input.maxSlots,
-      isShared: input.isShared,
     },
   });
 }
-export async function updatePlanAdmin(id: string, input: Partial<PlanInput>) {
-  return prisma.plan.update({ where: { id }, data: input });
+export async function updatePlanAdmin(id: string, input: Partial<OfferInput>) {
+  return prisma.productOffer.update({ where: { id }, data: input });
 }
 export async function deletePlanAdmin(id: string) {
-  return prisma.plan.delete({ where: { id } });
+  return prisma.productOffer.delete({ where: { id } });
 }
 
 export async function listAccountsAdmin() {
-  return prisma.account.findMany({ include: { service: true }, orderBy: { id: "desc" } });
+  return prisma.streamingAccount.findMany({
+    include: { service: true, profiles: true },
+    orderBy: { id: "desc" },
+  });
 }
 export async function createAccountAdmin(input: AccountInput) {
-  const availableSlots = Math.max(0, Math.min(input.availableSlots, input.totalSlots));
-  return prisma.account.create({
+  return prisma.streamingAccount.create({
     data: {
       serviceId: input.serviceId,
       email: input.email.trim().toLowerCase(),
-      password: input.password,
-      totalSlots: input.totalSlots,
-      availableSlots,
+      password: encryptField(input.password),
       isActive: input.isActive ?? true,
+      profiles: {
+        create: input.profileNames.map((profileName) => ({
+          profileName: profileName.trim(),
+          isAvailable: true,
+        })),
+      },
     },
+    include: { profiles: true },
   });
 }
 export async function updateAccountAdmin(id: string, input: Partial<AccountInput>) {
-  const patch: Partial<AccountInput> = { ...input };
-  if (typeof patch.totalSlots === "number" || typeof patch.availableSlots === "number") {
-    const current = await prisma.account.findUnique({ where: { id }, select: { totalSlots: true, availableSlots: true } });
-    if (current) {
-      const totalSlots = patch.totalSlots ?? current.totalSlots;
-      const availableSlotsRaw = patch.availableSlots ?? current.availableSlots;
-      patch.totalSlots = totalSlots;
-      patch.availableSlots = Math.max(0, Math.min(availableSlotsRaw, totalSlots));
-    }
-  }
-
-  return prisma.account.update({ where: { id }, data: patch });
+  const patch: { serviceId?: string; email?: string; password?: string; isActive?: boolean } = {};
+  if (typeof input.serviceId === "string") patch.serviceId = input.serviceId;
+  if (typeof input.email === "string") patch.email = input.email.trim().toLowerCase();
+  if (typeof input.password === "string") patch.password = encryptField(input.password);
+  if (typeof input.isActive === "boolean") patch.isActive = input.isActive;
+  return prisma.streamingAccount.update({ where: { id }, data: patch, include: { profiles: true } });
 }
 export async function deleteAccountAdmin(id: string) {
-  return prisma.account.delete({ where: { id } });
+  return prisma.streamingAccount.delete({ where: { id } });
 }
 
 export async function listAdminsAdmin() {
@@ -174,11 +317,11 @@ export async function getAdminStats() {
     }),
     prisma.order.findMany({
       where: { status: "APPROVED" },
-      select: { plan: { select: { price: true } } }
+      select: { offer: { select: { price: true } } },
     }),
   ]);
-  
-  const totalRevenue = approvedOrders.reduce((sum, order) => sum + Number(order.plan.price), 0);
+
+  const totalRevenue = approvedOrders.reduce((sum, order) => sum + Number(order.offer.price), 0);
 
   return {
     totalRevenue,

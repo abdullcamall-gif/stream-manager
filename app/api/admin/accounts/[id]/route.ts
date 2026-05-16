@@ -13,17 +13,16 @@ export async function PATCH(
     serviceId?: unknown;
     email?: unknown;
     password?: unknown;
-    totalSlots?: unknown;
-    availableSlots?: unknown;
+    profileNames?: unknown;
     isActive?: unknown;
   };
   const updated = await updateAccountAdmin(id, {
     serviceId: typeof body.serviceId === "string" ? body.serviceId : undefined,
     email: typeof body.email === "string" ? body.email : undefined,
     password: typeof body.password === "string" ? body.password : undefined,
-    totalSlots: typeof body.totalSlots === "number" ? body.totalSlots : undefined,
-    availableSlots:
-      typeof body.availableSlots === "number" ? body.availableSlots : undefined,
+    profileNames: Array.isArray(body.profileNames)
+      ? body.profileNames.filter((item): item is string => typeof item === "string")
+      : undefined,
     isActive: typeof body.isActive === "boolean" ? body.isActive : undefined,
   });
   return NextResponse.json(updated);

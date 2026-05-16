@@ -1,10 +1,11 @@
 import { prisma } from "@/lib/db";
+import { maybeDecryptField } from "@/lib/security/crypto";
 import { PaymentMethod } from "@prisma/client";
 
 export type CreateOrderInput = {
   name: string;
   phone: string;
-  planId: string;
+  offerId: string;
   paymentMethod: PaymentMethod;
   proofImageUrl: string;
 };
@@ -14,20 +15,28 @@ export type CreatedOrder = {
   status: "PENDING" | "APPROVED" | "REJECTED";
 };
 
+export type TimelineEvent = {
+  date: Date;
+  title: string;
+  description: string;
+  status: "COMPLETED" | "PENDING" | "FAILED";
+};
+
 export type CustomerOrderListItem = {
   id: string;
   status: "PENDING" | "APPROVED" | "REJECTED";
   service: string;
   plan: string;
   expiresAt: string | null;
-  credentials: {
-    email: string;
-    password: string;
-  } | null;
+  expiresSoon: boolean;
+  renewalStatus: string | null;
+  canRenew: boolean;
+  credentials: { email: string; password: string } | null;
+  timeline: TimelineEvent[];
 };
 
 export async function isPlanAvailable(planId: string): Promise<boolean> {
-  const plan = await prisma.plan.findFirst({
+  const plan = await prisma.productOffer.findFirst({
     where: {
       id: planId,
       price: { gt: 0 },
@@ -54,7 +63,7 @@ export async function findOrdersByPhone(
     select: {
       id: true,
       status: true,
-      plan: {
+      offer: {
         select: {
           name: true,
           service: {
@@ -64,13 +73,20 @@ export async function findOrdersByPhone(
           },
         },
       },
+      createdAt: true,
       assignment: {
         select: {
+          createdAt: true,
           expiresAt: true,
-          account: {
+          renewalStatus: true,
+          profile: {
             select: {
-              email: true,
-              password: true,
+              account: {
+                select: {
+                  email: true,
+                  password: true,
+                },
+              },
             },
           },
         },
@@ -83,20 +99,65 @@ export async function findOrdersByPhone(
 
   return orders.map((order) => {
     const assignment = order.assignment;
-    const canExposeCredentials = order.status === "APPROVED" && assignment;
+    const expiresAtIso = assignment?.expiresAt.toISOString() ?? null;
+    const now = Date.now();
+    const expiresSoon = assignment ? assignment.expiresAt.getTime() - now <= 3 * 24 * 60 * 60 * 1000 : false;
+
+    const timeline: TimelineEvent[] = [
+      {
+        date: order.createdAt as any, // assuming createdAt is selected
+        title: "Pedido Realizado",
+        description: "Seu pedido foi recebido e aguarda aprovação do pagamento.",
+        status: "COMPLETED",
+      },
+    ];
+
+    if (order.status === "APPROVED") {
+      timeline.push({
+        date: assignment?.createdAt || new Date(),
+        title: "Pagamento Aprovado",
+        description: "Seu pagamento foi confirmado.",
+        status: "COMPLETED",
+      });
+      timeline.push({
+        date: assignment?.createdAt || new Date(),
+        title: "Acesso Entregue",
+        description: "Suas credenciais estão disponíveis abaixo.",
+        status: "COMPLETED",
+      });
+    } else if (order.status === "REJECTED") {
+      timeline.push({
+        date: new Date(),
+        title: "Pedido Rejeitado",
+        description: "Houve um problema com seu comprovante.",
+        status: "FAILED",
+      });
+    } else {
+      timeline.push({
+        date: new Date(),
+        title: "Verificando Pagamento",
+        description: "Nossa equipe está analisando seu comprovante.",
+        status: "PENDING",
+      });
+    }
 
     return {
       id: order.id,
       status: order.status,
-      service: order.plan.service.name,
-      plan: order.plan.name,
-      expiresAt: assignment?.expiresAt.toISOString() ?? null,
-      credentials: canExposeCredentials
-        ? {
-            email: assignment.account.email,
-            password: assignment.account.password,
-          }
-        : null,
+      service: order.offer.service.name,
+      plan: order.offer.name,
+      expiresAt: expiresAtIso,
+      expiresSoon,
+      renewalStatus: assignment?.renewalStatus ?? null,
+      canRenew: order.status === "APPROVED" && Boolean(assignment),
+      credentials:
+        order.status === "APPROVED" && assignment
+          ? {
+              email: assignment.profile.account.email,
+              password: maybeDecryptField(assignment.profile.account.password),
+            }
+          : null,
+      timeline,
     };
   });
 }
@@ -127,7 +188,7 @@ export async function createOrderWithCustomer(
     const order = await tx.order.create({
       data: {
         customerId: customer.id,
-        planId: input.planId,
+        offerId: input.offerId,
         paymentMethod: input.paymentMethod,
         proofImageUrl: input.proofImageUrl,
       },

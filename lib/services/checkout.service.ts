@@ -1,11 +1,26 @@
 import { SYSTEM_CONTRACT_PATH } from "@/lib/contract";
 import {
   createOrderWithCustomer,
+  findOrdersByPhone,
   isPlanAvailable,
 } from "@/lib/repositories/order.repository";
 import { PaymentMethod } from "@prisma/client";
 
 const PHONE_REGEX = /^\+?[0-9]{8,15}$/;
+const SAFE_PROOF_IMAGE_REGEX = /^https:\/\/[a-z0-9.-]+(?:\/[^\s]*)?$/i;
+
+function isSafeProofImageUrl(value: string): boolean {
+  if (value.length > 2000) return false;
+  if (!SAFE_PROOF_IMAGE_REGEX.test(value)) return false;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "https:") return false;
+    const blockedHosts = new Set(["localhost", "127.0.0.1", "::1"]);
+    return !blockedHosts.has(parsed.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
 
 export type CreateOrderRequest = {
   name: string;
@@ -22,6 +37,17 @@ export type CreateOrderResult =
         id: string;
         status: "PENDING" | "APPROVED" | "REJECTED";
       };
+    }
+  | {
+      ok: false;
+      error: string;
+      statusCode: number;
+    };
+
+export type OrdersByPhoneResult =
+  | {
+      ok: true;
+      data: Awaited<ReturnType<typeof findOrdersByPhone>>;
     }
   | {
       ok: false;
@@ -81,6 +107,9 @@ export async function createManualOrder(
   if (!proofImageUrl) {
     return { ok: false, error: "proofImageUrl is required", statusCode: 400 };
   }
+  if (!isSafeProofImageUrl(proofImageUrl)) {
+    return { ok: false, error: "proofImageUrl must be a valid https URL", statusCode: 400 };
+  }
 
   const planIsValid = await isPlanAvailable(planId);
   if (!planIsValid) {
@@ -90,7 +119,7 @@ export async function createManualOrder(
   const order = await createOrderWithCustomer({
     name,
     phone,
-    planId,
+    offerId: planId,
     paymentMethod,
     proofImageUrl,
   });
@@ -98,5 +127,33 @@ export async function createManualOrder(
   return {
     ok: true,
     data: order,
+  };
+}
+
+function sanitizePhoneInput(value: string): string {
+  return value.replace(/[\s\-().]/g, "");
+}
+
+export async function listOrdersByPhone(phoneInput: string): Promise<OrdersByPhoneResult> {
+  void SYSTEM_CONTRACT_PATH;
+
+  const phone = sanitizePhoneInput(phoneInput.trim());
+
+  if (!phone) {
+    return { ok: false, error: "phone is required", statusCode: 400 };
+  }
+
+  if (!PHONE_REGEX.test(phone)) {
+    return {
+      ok: false,
+      error: "phone must be a valid phone number",
+      statusCode: 400,
+    };
+  }
+
+  const orders = await findOrdersByPhone(phone);
+  return {
+    ok: true,
+    data: orders,
   };
 }

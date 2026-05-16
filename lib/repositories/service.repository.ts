@@ -6,7 +6,7 @@ export type ServiceListItem = {
 };
 
 export async function findActiveServices(): Promise<ServiceListItem[]> {
-  return prisma.service.findMany({
+  return prisma.streamingService.findMany({
     where: { isActive: true },
     select: {
       id: true,

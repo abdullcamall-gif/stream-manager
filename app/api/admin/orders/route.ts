@@ -1,9 +1,9 @@
 import { ensureAdmin } from "@/app/api/admin/_auth";
-import { listAdminOrders } from "@/lib/services";
+import { listAdminOrders } from "@/lib/services/admin-management.service";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
-  const auth = ensureAdmin(request);
+  const auth = await ensureAdmin(request);
   if (!auth.ok) {
     return auth.response;
   }
@@ -11,3 +11,4 @@ export async function GET(request: Request) {
   const orders = await listAdminOrders();
   return NextResponse.json(orders);
 }
+

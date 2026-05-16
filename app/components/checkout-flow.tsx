@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 
 type CheckoutPlan = {
   id: string;
@@ -187,10 +188,13 @@ export function CheckoutFlow({ plans }: CheckoutFlowProps) {
             {proofImageUrl ? (
               <div className="mt-3">
                 <p className="mb-2 text-xs text-slate-400">Preview do comprovante</p>
-                <img
+                <Image
                   src={proofImageUrl}
                   alt="Comprovante enviado"
                   className="max-h-48 rounded-lg border border-slate-700 object-contain"
+                  width={320}
+                  height={192}
+                  unoptimized
                 />
                 <button
                   type="button"

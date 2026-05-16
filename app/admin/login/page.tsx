@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Mail, Lock, ArrowRight } from "lucide-react";
-import { adminFetch, setAdminToken } from "@/app/admin/_lib/admin-api";
+import { adminFetch, setAdminCsrfToken, setAdminToken } from "@/app/admin/_lib/admin-api";
 
 export default function AdminLoginPage() {
   const [email, setEmail] = useState("");
@@ -17,7 +17,7 @@ export default function AdminLoginPage() {
     setErrorMessage("");
     setIsLoading(true);
 
-    const result = await adminFetch<{ token: string }>("/api/v1/admin/login", {
+    const result = await adminFetch<{ token: string; csrfToken: string }>("/api/v1/admin/login", {
       method: "POST",
       body: JSON.stringify({ email, password }),
     });
@@ -29,6 +29,7 @@ export default function AdminLoginPage() {
     }
 
     setAdminToken(result.data.token);
+    setAdminCsrfToken(result.data.csrfToken);
     router.push("/admin/dashboard");
   }
 

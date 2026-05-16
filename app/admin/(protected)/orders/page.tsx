@@ -1,40 +1,89 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
 import { 
   Search, 
-  CheckCircle2, 
-  XCircle, 
-  Clock, 
   Eye,
-  ShoppingCart
+  ShoppingCart,
+  RefreshCcw,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { adminFetch } from "@/app/admin/_lib/admin-api";
+
+type AdminOrder = {
+  id: string;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  createdAt: string;
+  customer: { name: string; phone: string };
+  plan: { name: string; price: number | string; service: { name: string } };
+  proofImageUrl?: string;
+};
+
+type ApproveOrderResponse = {
+  whatsappDelivery?: {
+    status: "PENDING" | "SENT" | "FAILED";
+    error?: string | null;
+  };
+};
 
 export default function AdminOrdersPage() {
-  const [orders, setOrders] = useState<any[]>([]);
+  const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState("ALL");
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  const fetchOrders = async () => {
+    const result = await adminFetch<AdminOrder[]>("/api/admin/orders");
+    if (result.ok) {
+      setOrders(result.data);
+    }
+    setIsLoading(false);
+  };
 
   useEffect(() => {
-    async function fetchOrders() {
-      try {
-        const res = await fetch("/api/v1/orders");
-        if (res.ok) {
-          const data = await res.json();
-          setOrders(data);
-        }
-      } catch (error) {
-        console.error("Failed to fetch orders:", error);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-    fetchOrders();
+    const timeoutId = setTimeout(() => {
+      void fetchOrders();
+    }, 0);
+
+    return () => clearTimeout(timeoutId);
   }, []);
 
+  const handleApprove = async (id: string) => {
+    if (!confirm("Tem certeza que deseja APROVAR este pedido?")) return;
+    setActionLoading(id);
+    const res = await adminFetch<ApproveOrderResponse>(`/api/admin/orders/${id}/approve`, { method: "PATCH" });
+    if (res.ok) {
+      if (res.data.whatsappDelivery?.status === "FAILED") {
+        alert(res.data.whatsappDelivery.error || "Pedido aprovado, mas falhou o envio do WhatsApp.");
+      }
+      void fetchOrders();
+    } else {
+      alert(res.message || "Erro ao aprovar pedido");
+    }
+    setActionLoading(null);
+  };
+
+  const handleReject = async (id: string) => {
+    if (!confirm("Tem certeza que deseja REJEITAR este pedido?")) return;
+    setActionLoading(id);
+    const res = await adminFetch(`/api/admin/orders/${id}/reject`, { method: "PATCH" });
+    if (res.ok) {
+      void fetchOrders();
+    } else {
+      alert(res.message || "Erro ao rejeitar pedido");
+    }
+    setActionLoading(null);
+  };
+
   const filteredOrders = orders.filter(o => filter === "ALL" || o.status === filter);
+  const dateTimeFormatter = new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 
   return (
     <div className="space-y-8 animate-in fade-in duration-700">
@@ -66,75 +115,110 @@ export default function AdminOrdersPage() {
               </button>
             ))}
           </div>
+          <button 
+            onClick={() => {
+              setIsLoading(true);
+              void fetchOrders();
+            }}
+            className="p-3 bg-white/5 border border-white/10 rounded-2xl text-on-surface-variant hover:text-white transition-all"
+          >
+            <RefreshCcw className={cn("w-4 h-4", isLoading && "animate-spin")} />
+          </button>
         </div>
       </div>
 
-      <div className="liquid-glass rounded-3xl border border-white/5 overflow-hidden">
-        {isLoading ? (
+      <div className="liquid-glass rounded-3xl border border-white/5 overflow-hidden shadow-2xl shadow-black/50">
+        {isLoading && orders.length === 0 ? (
           <div className="p-20 flex flex-col items-center justify-center space-y-4">
             <div className="w-12 h-12 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
             <p className="text-on-surface-variant font-headline text-sm animate-pulse">Sincronizando banco de dados...</p>
           </div>
         ) : filteredOrders.length > 0 ? (
           <div className="overflow-x-auto">
-            <table className="w-full text-left min-w-[800px]">
+            <table className="w-full text-left min-w-[900px]">
               <thead>
                 <tr className="border-b border-white/5 bg-white/[0.02]">
                   <th className="px-8 py-6 font-headline text-[10px] font-bold tracking-widest text-on-surface-variant uppercase">ID & Data</th>
                   <th className="px-8 py-6 font-headline text-[10px] font-bold tracking-widest text-on-surface-variant uppercase">Cliente</th>
                   <th className="px-8 py-6 font-headline text-[10px] font-bold tracking-widest text-on-surface-variant uppercase">Serviço</th>
                   <th className="px-8 py-6 font-headline text-[10px] font-bold tracking-widest text-on-surface-variant uppercase text-center">Valor</th>
-                  <th className="px-8 py-6 font-headline text-[10px] font-bold tracking-widest text-on-surface-variant uppercase">Status</th>
+                  <th className="px-8 py-6 font-headline text-[10px] font-bold tracking-widest text-on-surface-variant uppercase text-center">Status</th>
                   <th className="px-8 py-6 font-headline text-[10px] font-bold tracking-widest text-on-surface-variant uppercase text-right">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
-                <AnimatePresence mode="popLayout">
-                  {filteredOrders.map((order) => (
-                    <motion.tr 
-                      layout
-                      key={order.id}
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      className="hover:bg-white/[0.02] transition-colors group"
-                    >
+                {filteredOrders.map((order) => (
+                    <tr key={order.id} className="hover:bg-white/[0.02] transition-colors group">
                       <td className="px-8 py-5">
-                        <div className="font-headline font-bold text-white text-sm">{order.id}</div>
-                        <div className="text-[10px] text-on-surface-variant mt-1 uppercase tracking-wider">{order.createdAt}</div>
+                        <div className="font-headline font-bold text-white text-sm uppercase">{order.id.split('-')[0]}</div>
+                        <div className="text-[10px] text-on-surface-variant mt-1 uppercase tracking-wider">
+                          {dateTimeFormatter.format(new Date(order.createdAt))}
+                        </div>
                       </td>
                       <td className="px-8 py-5">
-                        <div className="font-body text-sm text-white">{order.customerName}</div>
+                        <div className="font-body text-sm text-white">{order.customer.name}</div>
+                        <div className="text-[10px] text-primary font-bold mt-0.5">{order.customer.phone}</div>
                       </td>
                       <td className="px-8 py-5">
                         <div className="flex items-center gap-2">
                           <div className="w-2 h-2 rounded-full bg-primary" />
-                          <span className="text-xs font-bold text-on-surface-variant uppercase tracking-widest">{order.serviceName}</span>
+                          <span className="text-xs font-bold text-on-surface-variant uppercase tracking-widest">
+                            {order.plan.service.name} • {order.plan.name}
+                          </span>
                         </div>
                       </td>
                       <td className="px-8 py-5 text-center">
-                        <div className="font-headline font-bold text-white">{order.amount} <span className="text-primary/70 text-[10px]">MT</span></div>
+                        <div className="font-headline font-bold text-white">
+                          {order.plan.price ? Number(order.plan.price).toLocaleString() : '0'} 
+                          <span className="text-primary/70 text-[10px] ml-1">MT</span>
+                        </div>
                       </td>
-                      <td className="px-8 py-5">
+                      <td className="px-8 py-5 text-center">
                         <div className={cn(
                           "inline-flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-bold tracking-widest uppercase border",
-                          order.status === "APPROVED" ? "bg-primary/10 text-primary border-primary/20" : 
-                          order.status === "PENDING" ? "bg-yellow-500/10 text-yellow-500 border-yellow-500/20" : 
-                          "bg-red-500/10 text-red-500 border-red-500/20"
+                          order.status === "APPROVED" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.1)]" : 
+                          order.status === "PENDING" ? "bg-amber-500/10 text-amber-400 border-amber-500/20 animate-pulse" : 
+                          "bg-rose-500/10 text-rose-400 border-rose-500/20"
                         )}>
                           {order.status}
                         </div>
                       </td>
                       <td className="px-8 py-5 text-right">
-                        <div className="flex justify-end gap-2">
-                          <button className="p-2 hover:bg-white/5 rounded-xl text-on-surface-variant hover:text-white transition-all">
-                            <Eye className="w-4 h-4" />
-                          </button>
+                        <div className="flex justify-end items-center gap-3">
+                          {order.proofImageUrl && (
+                             <a 
+                              href={order.proofImageUrl} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="p-2 hover:bg-white/5 rounded-xl text-on-surface-variant hover:text-white transition-all group/action"
+                              title="Ver Comprovante"
+                            >
+                              <Eye className="w-4 h-4 group-hover/action:scale-110 transition-transform" />
+                            </a>
+                          )}
+                          
+                          {order.status === "PENDING" && (
+                            <>
+                              <button 
+                                onClick={() => void handleApprove(order.id)}
+                                disabled={actionLoading !== null}
+                                className="px-4 py-2 bg-emerald-500 text-black font-headline text-[10px] font-bold uppercase rounded-xl hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50"
+                              >
+                                {actionLoading === order.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Aprovar"}
+                              </button>
+                              <button 
+                                onClick={() => void handleReject(order.id)}
+                                disabled={actionLoading !== null}
+                                className="px-4 py-2 bg-white/5 border border-white/10 text-rose-400 font-headline text-[10px] font-bold uppercase rounded-xl hover:bg-rose-500 hover:text-white transition-all disabled:opacity-50"
+                              >
+                                Rejeitar
+                              </button>
+                            </>
+                          )}
                         </div>
                       </td>
-                    </motion.tr>
+                    </tr>
                   ))}
-                </AnimatePresence>
               </tbody>
             </table>
           </div>

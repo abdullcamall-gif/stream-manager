@@ -16,8 +16,6 @@ export async function POST(request: Request) {
     name?: unknown;
     price?: unknown;
     durationInDays?: unknown;
-    maxSlots?: unknown;
-    isShared?: unknown;
   };
 
   const payload = {
@@ -25,12 +23,10 @@ export async function POST(request: Request) {
     name: typeof body.name === "string" ? body.name : "",
     price: Number(body.price),
     durationInDays: Number(body.durationInDays),
-    maxSlots: Number(body.maxSlots),
-    isShared: Boolean(body.isShared),
   };
   if (!payload.serviceId || !payload.name || payload.price <= 0 || payload.durationInDays <= 0) {
     return NextResponse.json(
-      { error: { code: "INVALID_INPUT", message: "invalid plan payload" } },
+      { error: { code: "INVALID_INPUT", message: "invalid product offer payload" } },
       { status: 400 },
     );
   }

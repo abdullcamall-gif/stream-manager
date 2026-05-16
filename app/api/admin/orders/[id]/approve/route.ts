@@ -6,7 +6,7 @@ export async function PATCH(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
-  const auth = await ensureAdmin(request, ["ADMIN"]);
+  const auth = await ensureAdmin(request, ["ADMIN", "SUPPORT"]);
   if (!auth.ok) {
     return auth.response;
   }
