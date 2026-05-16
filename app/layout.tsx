@@ -1,16 +1,5 @@
 import type { Metadata } from "next";
-import { Space_Grotesk, Spline_Sans } from "next/font/google";
 import "./globals.css";
-
-const spaceGrotesk = Space_Grotesk({
-  variable: "--font-space-grotesk",
-  subsets: ["latin"],
-});
-
-const splineSans = Spline_Sans({
-  variable: "--font-spline-sans",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "ElberStreaming | O Melhor do Cinema",
@@ -25,9 +14,21 @@ export default function RootLayout({
   return (
     <html
       lang="pt-BR"
-      className={`${spaceGrotesk.variable} ${splineSans.variable} scroll-smooth dark`}
+      className="scroll-smooth dark"
     >
-      <body className="font-body selection:bg-primary/30 selection:text-primary">
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300..700&family=Spline+Sans:wght@300..700&display=swap" rel="stylesheet" />
+      </head>
+      <body 
+        className="font-body selection:bg-primary/30 selection:text-primary"
+        style={{
+          // @ts-ignore - custom properties
+          "--font-space-grotesk": "'Space Grotesk', sans-serif",
+          "--font-spline-sans": "'Spline Sans', sans-serif",
+        }}
+      >
         {children}
       </body>
     </html>

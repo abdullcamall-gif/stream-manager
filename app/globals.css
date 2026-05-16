@@ -31,6 +31,8 @@
 :root {
   --background: #0e1514;
   --foreground: #dde4e2;
+  --font-space-grotesk: 'Space Grotesk', sans-serif;
+  --font-spline-sans: 'Spline Sans', sans-serif;
 }
 
 body {

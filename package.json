@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "check:tailwind": "node -e \"require.resolve('tailwindcss/package.json'); require.resolve('@tailwindcss/postcss'); console.log('tailwindcss v4 OK')\"",
+    "postinstall": "prisma generate",
     "dev": "npm run check:tailwind && next dev",
     "build": "next build",
     "analyze": "set ANALYZE=true&& next build --webpack",
