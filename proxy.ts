@@ -1,10 +1,10 @@
-import { NextResponse } from 'next/server';
+﻿import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { jwtVerify } from 'jose';
 
 const ADMIN_JWT_SECRET = process.env.ADMIN_JWT_SECRET || "stream-saas-ultra-secure-key-2024";
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Only protect /admin routes, excluding login
@@ -29,7 +29,7 @@ export async function middleware(request: NextRequest) {
       
       return NextResponse.next();
     } catch (error) {
-      console.error('Middleware auth error:', error);
+      console.error('Proxy auth error:', error);
       // If token is invalid, clear it and redirect to login
       const response = NextResponse.redirect(new URL('/admin/login', request.url));
       response.cookies.delete('admin_token');
